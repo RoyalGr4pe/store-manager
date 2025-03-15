@@ -1,0 +1,38 @@
+{
+    "listings": {
+        "admin": {
+            "automatic": 1000000,
+            "manual": 1000000
+        },
+        "standard": {
+            "automatic": 30,
+            "manual": 30
+        },
+        "pro": {
+            "automatic": 300,
+            "manual": 300
+        },
+        "elite": {
+            "automatic": 1000,
+            "manual": 1000
+        }
+    },
+    "orders": {
+        "admin": {
+            "automatic": 1000000,
+            "manual": 1000000
+        },
+        "standard": {
+            "automatic": 30,
+            "manual": 30
+        },
+        "pro": {
+            "automatic": 300,
+            "manual": 300
+        },
+        "elite": {
+            "automatic": 1000,
+            "manual": 1000
+        }
+    }
+}
