@@ -33,6 +33,17 @@ app = FastAPI(
 # Attach the limiter to the FastAPI app
 app.state.limiter = limiter
 
+
+# Add exception handler for rate limit exceeded errors
+async def ratelimit_error(request: Request, exc: RateLimitExceeded):
+    return JSONResponse(
+        status_code=429,
+        content={"detail": "Rate limit exceeded, please try again later."},
+    )
+
+
+app.add_exception_handler(RateLimitExceeded, ratelimit_error)
+
 # Setup CORS
 app.add_middleware(
     CORSMiddleware,
@@ -106,18 +117,9 @@ async def fetch_user_and_update_tokens(
     return user_ref, user_snapshot, user
 
 
-# Add exception handler for rate limit exceeded errors
-@app.exception_handler(RateLimitExceeded)
-async def ratelimit_error(request: Request, exc: RateLimitExceeded):
-    return JSONResponse(
-        status_code=429,
-        content={"detail": "Rate limit exceeded, please try again later."},
-    )
-
-
 @app.get("/")
 @limiter.limit("1/minute")
-async def root():
+async def root(request: Request):
     return {"message": "Welcome to the API"}
 
 
@@ -234,6 +236,6 @@ async def orders(request: Request):
 
 
 # Run app if executed directly
-#if __name__ == "__main__":
+# if __name__ == "__main__":
 # When running locally
 # uvicorn.run(app, host="0.0.0.0", port=8000)
