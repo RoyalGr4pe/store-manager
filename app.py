@@ -24,7 +24,11 @@ import uvicorn
 limiter = Limiter(key_func=get_remote_address)
 
 # Initialize FastAPI application
-app = FastAPI()
+app = FastAPI(
+    title="Flippify Store API",
+    description="API for fetching and updating eBay listings and orders",
+    version="1.0.0",
+)
 
 # Attach the limiter to the FastAPI app
 app.state.limiter = limiter
@@ -109,6 +113,12 @@ async def ratelimit_error(request: Request, exc: RateLimitExceeded):
         status_code=429,
         content={"detail": "Rate limit exceeded, please try again later."},
     )
+
+
+@app.get("/")
+@limiter.limit("1/minute")
+async def root():
+    return {"message": "Welcome to the API"}
 
 
 # Update inventory endpoint
