@@ -1,5 +1,5 @@
 from pydantic import BaseModel
-from typing import Optional, Dict, List, Union, Literal
+from typing import Optional, List, Literal
 
 # Enum-like types
 RecordType = Literal["automatic", "manual"]
