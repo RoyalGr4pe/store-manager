@@ -118,14 +118,14 @@ async def fetch_user_and_update_tokens(
 
 
 @app.get("/")
-@limiter.limit("1/minute")
+@limiter.limit("1/second")
 async def root(request: Request):
     return {"message": "Welcome to the API"}
 
 
 # Update inventory endpoint
 @app.get("/update-inventory")
-@limiter.limit("1/minute")
+@limiter.limit("1/second")
 async def active_listings(request: Request):
     user_info = await fetch_user_and_update_tokens(request)
     if isinstance(user_info, HTTPException):
@@ -181,7 +181,7 @@ async def active_listings(request: Request):
 
 # Update orders endpoint
 @app.get("/update-orders")
-@limiter.limit("1/minute")
+@limiter.limit("1/second")
 async def orders(request: Request):
     user_info = await fetch_user_and_update_tokens(request)
     if isinstance(user_info, HTTPException):
