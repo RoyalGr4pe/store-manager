@@ -1,9 +1,12 @@
+# Local Imports
 from src.db_firebase import FirebaseDB
+from src.models import EbayTokenData, SuccessOrError, RefreshEbayTokenData, IEbay
 
-from google.cloud.firestore_v1 import DocumentReference, DocumentSnapshot
-from datetime import datetime, timedelta, timezone
-from ebaysdk.trading import Connection as Trading
+# External Imports
+from google.cloud.firestore_v1 import AsyncDocumentReference
 from ebaysdk.exception import ConnectionError
+from ebaysdk.trading import Connection as Trading
+from datetime import datetime, timezone
 from dotenv import load_dotenv
 
 import requests
@@ -14,35 +17,40 @@ import os
 load_dotenv()
 
 
-def refresh_ebay_token_direct(firebase_db: FirebaseDB, user_ref: DocumentReference, user_snapshot: DocumentSnapshot):
+async def check_and_refresh_ebay_token(
+    db: FirebaseDB, user_ref: AsyncDocumentReference, ebay_account: IEbay
+) -> SuccessOrError:
     """
     Refresh the eBay access token directly without needing to be called from a route.
     This function assumes the user's Firebase data has a valid refresh token stored.
     """
-    # Get the eBay account data
-    ebay_account_data = user_snapshot.get("connectedAccounts").get("ebay")
-    if not ebay_account_data:
-        return {"error": "eBay account not connected"}, 400
-    
-    # Fetch the refresh token
-    refresh_token = ebay_account_data.get("ebayRefreshToken")
-    if not refresh_token:
-        return {"error": "Refresh token not found"}, 400
-
     try:
+        # Check if the users eBay token has expired
+        token_expiry = ebay_account.ebayTokenExpiry
+        refresh_token = ebay_account.ebayRefreshToken
+        current_timestamp = int(datetime.now(timezone.utc).timestamp())
+
+        if token_expiry > current_timestamp:
+            return {"success": True}
+
         # Refresh the eBay access token using the refresh token
-        token_data = refresh_ebay_access_token(refresh_token, os.getenv("CLIENT_ID"), os.getenv("CLIENT_SECRET"))  
+        token_data = await refresh_ebay_access_token(
+            refresh_token, os.getenv("CLIENT_ID"), os.getenv("CLIENT_SECRET")
+        )
+        if token_data.data is None:
+            return {"success": False, "error": token_data.error}
+
         # Store the new token and expiry date in the database
-        firebase_db.update_user_token(user_ref, token_data)
+        await db.update_user_token(user_ref, token_data.data)
 
-        # Return the new access token in the response
-        return {"access_token": token_data.get("access_token")}, 200
-
+        return {"success": True}
     except Exception as e:
-        return {"error": str(e)}, 500
-    
+        return {"success": False, "error": f"check_and_refresh_ebay_token(): {str(e)}"}
 
-def refresh_ebay_access_token(refresh_token, client_id, client_secret):
+
+async def refresh_ebay_access_token(
+    refresh_token, client_id, client_secret
+) -> RefreshEbayTokenData | None:
     url = "https://api.ebay.com/identity/v1/oauth2/token"
 
     # Base64 encode the client_id and client_secret
@@ -52,25 +60,39 @@ def refresh_ebay_access_token(refresh_token, client_id, client_secret):
     # Set the authorization header and content-type
     headers = {
         "Authorization": f"Basic {encoded_credentials}",
-        "Content-Type": "application/x-www-form-urlencoded"
+        "Content-Type": "application/x-www-form-urlencoded",
     }
 
     # Set the request data (the refresh token and grant type)
-    data = {
-        'grant_type': 'refresh_token',
-        'refresh_token': refresh_token
-    }
+    data = {"grant_type": "refresh_token", "refresh_token": refresh_token}
 
-    # Make the POST request to eBay's token endpoint
-    response = requests.post(url, headers=headers, data=data)
+    try: 
+        # Make the POST request to eBay's token endpoint
+        response = requests.post(url, headers=headers, data=data)
 
-    if response.status_code == 200:
-        return response.json()  # Successful response with the new access token
-    else:
-        raise Exception(f"Error refreshing eBay token: {response.status_code}, {response.text}")
+        if response.status_code == 200:
+            data = response.json()
+            return RefreshEbayTokenData(
+                data=EbayTokenData(
+                    access_token=data["access_token"],
+                    expires_in=data["expires_in"],
+                    refresh_token=refresh_token,
+                ),
+                error=None,  
+            )
+        else:
+            return RefreshEbayTokenData(
+                data=None, 
+                error=response.text,
+            )
+    except Exception as error:
+        return RefreshEbayTokenData(
+            data=None,
+            error=f"refresh_ebay_access_token(): {str(error)}",
+        )
 
 
-def fetch_listings(oauth_token, limit, offset, time_from):
+def fetch_listings(oauth_token: str, limit: int, time_from):
     # Connect to eBay API
     api = Trading(
         appid=os.getenv("CLIENT_ID"),
@@ -79,7 +101,6 @@ def fetch_listings(oauth_token, limit, offset, time_from):
         token=oauth_token,
         config_file=None,
     )
-    print(api)
 
     # Set up parameters for the API call
     params = {
@@ -89,11 +110,10 @@ def fetch_listings(oauth_token, limit, offset, time_from):
             "StartTimeFrom": time_from,  # Only fetch listings created after this date
             "Pagination": {
                 "EntriesPerPage": min(10, limit),  # Limit the number of listings
-                "PageNumber": offset+1,  # Pagination using offset (page number)
+                "PageNumber": 1, 
             },
         }
     }
-
 
     try:
         # Make the eBay API call using GetMyeBaySelling
@@ -108,11 +128,15 @@ def fetch_listings(oauth_token, limit, offset, time_from):
             listing_data = {
                 "itemId": item["ItemID"],
                 "itemName": item["Title"],
-                "price": round(float(item["SellingStatus"]["CurrentPrice"]["value"]), 2),
+                "price": round(
+                    float(item["SellingStatus"]["CurrentPrice"]["value"]), 2
+                ),
                 "image": item["PictureDetails"]["GalleryURL"],
                 "dateListed": item["ListingDetails"]["StartTime"],
                 "listingType": "automatic",
-                "quantity": item["QuantityAvailable"] if "QuantityAvailable" in item else 0,
+                "quantity": (
+                    item["QuantityAvailable"] if "QuantityAvailable" in item else 0
+                ),
             }
             listings.append(listing_data)
 
@@ -123,42 +147,7 @@ def fetch_listings(oauth_token, limit, offset, time_from):
         return []
 
 
-def calc_ebay_time_from(user_ref: DocumentReference, time_from, listing_type):
-    # Calculate 90 days ago from the current time in UTC
-    ninety_days_ago = datetime.now(timezone.utc) - timedelta(days=90)
-
-    # If the user has not specified the time they want to fetch data from
-    if time_from is None:
-        # Fetch the last time that eBay was queried
-        last_fetched_date = user_ref.get("lastFetchedDate")
-
-        # If no param was given and there's no record of the last listings fetched
-        # then default to 90 days ago
-        if (last_fetched_date is None):
-            return ninety_days_ago.isoformat()
-        elif last_fetched_date.get("ebay") is None:
-            return ninety_days_ago.isoformat()
-        elif last_fetched_date.get("ebay").get(listing_type) is None:
-            return ninety_days_ago.isoformat()
-        
-        # If no param was given but there is a record, then only fetch listings after the last_fetched_date
-        return last_fetched_date.get("ebay").get(listing_type)
-    
-    # If time_from is specified but is more than 90 days ago, adjust it to 90 days ago
-    time_from_date = datetime.fromisoformat(time_from)
-
-    # Make sure time_from_date is timezone-aware in UTC
-    if time_from_date.tzinfo is None:
-        time_from_date = time_from_date.replace(tzinfo=timezone.utc)
-    
-    if time_from_date < ninety_days_ago:
-        return ninety_days_ago.isoformat()
-    
-    # If time_from is within the last 90 days, return it as is
-    return time_from
-
-
-def fetch_listing_details_from_ebay(item_id, oauth_token):
+def fetch_listing_details_from_ebay(item_id: str, oauth_token: str):
     # Make a call to the eBay API to fetch the listing details
     api = Trading(
         appid=os.getenv("CLIENT_ID"),

@@ -1,20 +1,20 @@
-from .handler_limits import calc_user_set_limit
-from .handler_ebay import calc_ebay_time_from, fetch_listing_details_from_ebay
-from .db_firebase import FirebaseDB
+# Local Imports
+from src.db_firebase import FirebaseDB
+from src.handler_ebay import fetch_listing_details_from_ebay
 
-from datetime import datetime, timedelta, timezone
+# External Imports
 from ebaysdk.trading import Connection as Trading
-from ebaysdk.exception import ConnectionError
-from math import ceil
 
 import os
 
 
-
-def fetch_orders(firebase_db: FirebaseDB, user_ref, oauth_token, limit, offset, time_from):
-    # Convert time_from to a datetime object
-    #time_from_date = datetime.fromisoformat(time_from)
-
+async def fetch_orders(
+    db: FirebaseDB,
+    uid: str,
+    oauth_token: str,
+    limit: int,
+    time_from,
+):
     # Connect to eBay API
     api = Trading(
         appid=os.getenv("CLIENT_ID"),
@@ -24,15 +24,13 @@ def fetch_orders(firebase_db: FirebaseDB, user_ref, oauth_token, limit, offset, 
         config_file=None,
     )
 
-    page_no = ceil(offset / 10)
-    page_offset = offset - ((page_no-1) * 10)
     # Set up parameters for the API call
     params = {
         "OrderStatus": "All",
         "CreateTimeFrom": time_from,
         "Pagination": {
             "EntriesPerPage": min(10, limit),
-            "PageNumber": page_no,
+            "PageNumber": 1,
         }
     }
 
@@ -50,24 +48,22 @@ def fetch_orders(firebase_db: FirebaseDB, user_ref, oauth_token, limit, offset, 
 
         orders = order_array.get("Order", [])
 
-        for order in orders[page_offset-1:]:
+        for order in orders[::-1]:
             if is_refunded_or_incomplete(order):
-                firebase_db.remove_order(user_ref, order["OrderID"])
+                await db.remove_order(uid, order["OrderID"])
                 continue
 
-            processed_items = enrich_order_items(firebase_db, user_ref, oauth_token, order)
+            processed_items = await enrich_order_items(db, uid, oauth_token, order)
 
             detailed_order_data = merge_enriched_data_with_order(processed_items, order)
 
             order_details.extend(detailed_order_data)
-
 
     except Exception as e:
         error = e
 
     finally:
         return { "content": order_details, "error": error }
-    
 
 
 def is_refunded_or_incomplete(order):
@@ -79,8 +75,7 @@ def is_refunded_or_incomplete(order):
     return False
 
 
-
-def enrich_order_items(firebase_db: FirebaseDB, user_ref, oauth_token, order):
+async def enrich_order_items(db: FirebaseDB, uid: str, oauth_token: str, order):
     # This list will contain the main details for each order, excluding data such as
     # image, purchasePlatform, purchaseDate etc.
     enriched_items_list = []
@@ -95,11 +90,13 @@ def enrich_order_items(firebase_db: FirebaseDB, user_ref, oauth_token, order):
             item_id = transaction["Item"]["ItemID"]
 
             # Retrieve listing details from Firebase by item ID
-            listing_data = firebase_db.get_listing(user_ref, item_id)
-
+            listing_res = await db.get_listing(uid, item_id)
+            listing_data = listing_res.get("listing")
             if not listing_data:
                 # If listing data is missing, make an API call to get the item details
                 listing_data = fetch_listing_details_from_ebay(item_id, oauth_token)
+            else:
+                await db.remove_listing(uid, item_id)
 
             quantity_sold = int(transaction["QuantityPurchased"])
             # Prepare transaction data with additional listing details if available
@@ -128,7 +125,6 @@ def enrich_order_items(firebase_db: FirebaseDB, user_ref, oauth_token, order):
 
     finally:
         return enriched_items_list
-
 
 
 def merge_enriched_data_with_order(enriched_items_list, order):
@@ -161,7 +157,6 @@ def merge_enriched_data_with_order(enriched_items_list, order):
         return detailed_order_data
 
 
-
 def calculate_shipping_cost(order):
     shipping_service_options = order["ShippingDetails"].get("ShippingServiceOptions", {})
     shipping_fees = 0
@@ -185,23 +180,3 @@ def calculate_shipping_cost(order):
 
     finally:
         return shipping_fees
-
-
-
-def set_order_query_params(request, user_ref, user_limits):
-    params = {}
-
-    subscription_max_orders = user_limits["automatic"] + user_limits["manual"]
-    user_set_limit = int(request.args.get("limit", subscription_max_orders))
-    time_from = request.args.get("time_from")
-
-    params["limit"] = calc_user_set_limit(user_set_limit, subscription_max_orders)
-    params["offset"] = int(request.args.get("offset", 1)) 
-    params["subscription_max_orders"] = subscription_max_orders
-    params["max_orders_automatic"] = user_limits["automatic"]
-    params["max_orders_manual"] = user_limits["manual"]
-    params["db_time_from"] = time_from
-    params["ebay_time_from"] = calc_ebay_time_from(user_ref, time_from, "orders")
-
-    return params
-
