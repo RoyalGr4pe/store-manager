@@ -1,10 +1,11 @@
+from typing import Optional, List, Literal, Dict
 from pydantic import BaseModel
-from typing import Optional, List, Literal
 
 # Enum-like types
 RecordType = Literal["automatic", "manual"]
 CurrencyType = Literal["USD", "GBP", "EUR", "AUD", "CAD"]
 EmailVerification = Literal["unverified", "verifying", "verified"]
+StoreType = Literal["ebay", "shopify", "amazon"]
 
 
 class EbayTokenData(BaseModel):
@@ -23,6 +24,7 @@ class RefreshEbayTokenData(BaseModel):
 # --------------------------------------------------- #
 # Pydantic models for user data                       #
 # --------------------------------------------------- #
+
 
 class ILastFetchedDate(BaseModel):
     inventory: Optional[str] = None
@@ -106,10 +108,27 @@ class IPreferences(BaseModel):
     locale: str
     currency: CurrencyType
 
-class INumItems(BaseModel):
+
+class INumListings(BaseModel):
     automatic: int
     manual: int
 
+class INumOrders(BaseModel):
+    resetDate: str
+    automatic: int
+    manual: int
+    totalAutomatic: int
+    totalManual: int
+
+
+class IStore(BaseModel):
+    numListings: Optional[INumListings] = None
+    numOrders: Optional[INumOrders] = None
+    lastFetchedDate: Optional[ILastFetchedDate] = None
+
+
+class Store(BaseModel):
+    ebay: Optional[IStore] = None
 
 # Main IUser Model
 class IUser(BaseModel):
@@ -120,9 +139,7 @@ class IUser(BaseModel):
     stripeCustomerId: str
     subscriptions: Optional[List[ISubscription]] = None
     referral: IReferral
-    numListings: Optional[INumItems] = None
-    numOrders: Optional[INumItems] = None
-    lastFetchedDate: Optional[ILastFetchedDates] = None
+    store: Optional[Store] = None
     preferences: IPreferences
     authentication: IAuthentication
     metaData: IMetaData

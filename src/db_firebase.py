@@ -1,5 +1,5 @@
 # Local Imports
-from src.models import EbayTokenData
+from src.models import EbayTokenData, StoreType, INumOrders
 
 # External Imports
 from google.cloud.firestore_v1.async_client import AsyncClient
@@ -108,28 +108,60 @@ class FirebaseDB:
 
     @handle_firestore_errors
     async def set_last_fetched_date(
-        self, user_ref: AsyncDocumentReference, data_type: str, date: str
+        self,
+        user_ref: AsyncDocumentReference,
+        data_type: str,
+        date: str,
+        store_type: StoreType,
     ):
         """Set the last fetched date for inventory or orders."""
-        await user_ref.update({f"lastFetchedDate.ebay.{data_type}": date})
+        await user_ref.update({f"store.{store_type}.lastFetchedDate.{data_type}": date})
 
     @handle_firestore_errors
     async def set_current_no_listings(
-        self, user_ref: AsyncDocumentReference, automatic_count: int, manual_count: int
+        self,
+        user_ref: AsyncDocumentReference,
+        automatic_count: int,
+        manual_count: int,
+        store_type: StoreType,
     ):
         """Set the current number of inventory for a user."""
         await user_ref.update(
-            {"numListings": {"automatic": automatic_count, "manual": manual_count}}
+            {
+                f"store.{store_type}.numListings": {
+                    "automatic": automatic_count,
+                    "manual": manual_count,
+                }
+            }
         )
 
     @handle_firestore_errors
     async def set_current_no_orders(
-        self, user_ref: AsyncDocumentReference, automatic_count: int, manual_count: int
+        self,
+        user_ref: AsyncDocumentReference,
+        numOrders: INumOrders,
+        new_orders: int,
+        store_type: StoreType,
     ):
-        """Set the current number of orders for a user."""
-        await user_ref.update(
-            {"numOrders": {"automatic": automatic_count, "manual": manual_count}}
-        )
+        """Set the current number of orders for a user, including the totals."""
+        try:
+            # Update the database with the new counts and totals
+            await user_ref.update(
+                {
+                    f"store.{store_type}.numOrders": {
+                        "resetDate": numOrders.resetDate,
+                        "automatic": numOrders.automatic + new_orders,
+                        "manual": numOrders.manual,
+                        "totalAutomatic": numOrders.totalAutomatic + new_orders,
+                        "totalManual": numOrders.totalManual,
+                    }
+                }
+            )
+            return {"success": True}
+
+        except Exception as error:
+            print(f"Error in set_current_no_orders: {error}")
+            return {"error": str(error)}
 
     @handle_firestore_errors
     async def get_listing(self, uid: str, listing_id: str):
@@ -234,7 +266,6 @@ class FirebaseDB:
 
         except Exception as error:
             return {"success": False, "message": str(error)}
-
 
     @handle_firestore_errors
     async def remove_order(self, uid: str, order_id: str):
