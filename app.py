@@ -1,11 +1,8 @@
 # Local Imports
-from src.utils import fetch_user_member_sub
-from src.models import IUser
+from src.utils import fetch_user_member_sub, fetch_users_limits, get_next_month_reset_date
+from src.models import IUser, Store, IStore, INumListings, INumOrders
 from src.db_firebase import FirebaseDB
-from src.handler_ebay import check_and_refresh_ebay_token
-from src.process_orders import fetch_orders
-from src.handler_limits import fetch_users_limits
-from src.process_listings import fetch_listings
+from src.handler_ebay import check_and_refresh_ebay_token, update_ebay_inventory, update_ebay_orders
 
 # External Imports
 from google.cloud.firestore_v1 import AsyncDocumentReference, DocumentSnapshot
@@ -13,7 +10,6 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from slowapi.errors import RateLimitExceeded
 from slowapi.util import get_remote_address
-from datetime import timedelta, timezone, datetime
 from fastapi import FastAPI, HTTPException, Request
 from slowapi import Limiter
 
@@ -141,37 +137,30 @@ async def active_listings(request: Request):
     user_limits: dict = fetch_users_limits(member_subscription.name, "listings")
     db = get_db()
 
+    errors = []
+
     try:
-        if user.numListings.automatic >= user_limits["automatic"]:
-            raise HTTPException(
-                status_code=400,
-                detail="You have hit your limit for automatically fetching listings",
+        store = user.store
+        if not store:
+            user.store = Store()
+
+        if (not store.ebay):
+            store.ebay = IStore(
+                numListings=INumListings(automatic=0, manual=0),
+                numOrders=INumOrders(resetDate=get_next_month_reset_date(), automatic=0, manual=0, totalAutomatic=0, totalManual=0),
             )
 
-        current_time = datetime.now(timezone.utc)
-        time_from = user.lastFetchedDate.ebay.inventory if user.lastFetchedDate and user.lastFetchedDate.ebay else None
-        if not time_from:
-            time_from = (current_time - timedelta(days=90)).isoformat()
-        else:
-            time_from = user.lastFetchedDate.ebay.inventory
+        ebay = store.ebay
 
-        ebay_listings_dict = fetch_listings(
-            user.connectedAccounts.ebay.ebayAccessToken,
-            user_limits["automatic"],
-            time_from,
-        )
-        ebay_listings = ebay_listings_dict.get("content")
+        if (not ebay.numListings):
+            ebay.numListings = INumListings(automatic=0, manual=0)
 
-        if not ebay_listings:
-            return {"content": []}
+        ebay_update = await update_ebay_inventory(ebay, db, user, user_ref, user_limits)
+        if ebay_update.get("error"):
+            errors.append(ebay_update.get("error"))
 
-        await db.add_listings(user.id, ebay_listings)
-        await db.set_last_fetched_date(user_ref, "inventory", current_time.isoformat())
-        await db.set_current_no_listings(
-            user_ref,
-            user.numListings.automatic + len(ebay_listings),
-            user.numListings.manual,
-        )
+        if (errors):
+            return {"success": False, "errors": errors}
 
         return {"success": True}
 
@@ -197,37 +186,42 @@ async def orders(request: Request):
     user_limits: dict = fetch_users_limits(member_subscription.name, "orders")
     db = get_db()
 
+    errors = []
+
     try:
-        if user.numOrders.automatic >= user_limits["automatic"]:
-            raise HTTPException(
-                status_code=400,
-                detail="You have hit your limit for automatically fetching orders",
+        store = user.store
+        if not store:
+            user.store = Store()
+
+        if (not store.ebay):
+            store.ebay = IStore(
+                numListings=INumListings(automatic=0, manual=0),
+                numOrders=INumOrders(
+                    resetDate=get_next_month_reset_date(),
+                    automatic=0,
+                    manual=0,
+                    totalAutomatic=0,
+                    totalManual=0,
+                ),
             )
 
-        current_time = datetime.now(timezone.utc)
-        time_from = user.lastFetchedDate.ebay.orders if user.lastFetchedDate and user.lastFetchedDate.ebay else None
-        if not time_from:
-            time_from = (current_time - timedelta(days=90)).isoformat()
-        else:
-            time_from = user.lastFetchedDate.ebay.orders
+        ebay = store.ebay
 
-        ebay_orders_dict = await fetch_orders(
-            db,
-            user.id,
-            user.connectedAccounts.ebay.ebayAccessToken,
-            user_limits["automatic"],
-            time_from,
-        )
-        ebay_orders = ebay_orders_dict.get("content")
+        if not ebay.numOrders:
+            ebay.numOrders = INumOrders(
+                resetDate=get_next_month_reset_date(),
+                automatic=0,
+                manual=0,
+                totalAutomatic=0,
+                totalManual=0,
+            )
 
-        if not ebay_orders:
-            return {"content": []}
+        ebay_update = await update_ebay_orders(ebay, db, user, user_ref, user_limits)
+        if ebay_update.get("error"):
+            errors.append(ebay_update.get("error"))
 
-        await db.add_orders(user.id, ebay_orders)
-        await db.set_last_fetched_date(user_ref, "orders", current_time.isoformat())
-        await db.set_current_no_orders(
-            user_ref, user.numOrders.automatic + len(ebay_orders), user.numOrders.manual
-        )
+        if (errors):
+            return {"success": False, "errors": errors}
 
         return {"success": True}
 
@@ -236,6 +230,6 @@ async def orders(request: Request):
 
 
 # Run app if executed directly
-# if __name__ == "__main__":
-# When running locally
-# uvicorn.run(app, host="0.0.0.0", port=8000)
+if __name__ == "__main__":
+    # When running locally
+    uvicorn.run(app, host="0.0.0.0", port=8000)
