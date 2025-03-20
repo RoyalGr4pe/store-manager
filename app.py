@@ -116,7 +116,7 @@ async def fetch_user_and_update_tokens(
 @app.get("/")
 @limiter.limit("1/second")
 async def root(request: Request):
-    return {"message": "Welcome to the API"}
+    return {"name": "Flippify API", "version": "1.0.1", "status": "running", "docs": "https://api.flippify.io/docs"}
 
 
 # Update inventory endpoint
