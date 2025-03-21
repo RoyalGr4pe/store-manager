@@ -1,4 +1,5 @@
 # Local Imports
+from src.utils import get_next_month_reset_date
 from src.models import EbayTokenData, StoreType, INumOrders
 
 # External Imports
@@ -122,14 +123,16 @@ class FirebaseDB:
         self,
         user_ref: AsyncDocumentReference,
         automatic_count: int,
+        new_listings: int,
         manual_count: int,
         store_type: StoreType,
     ):
+
         """Set the current number of inventory for a user."""
         await user_ref.update(
             {
                 f"store.{store_type}.numListings": {
-                    "automatic": automatic_count,
+                    "automatic": automatic_count + new_listings,
                     "manual": manual_count,
                 }
             }
@@ -145,13 +148,31 @@ class FirebaseDB:
     ):
         """Set the current number of orders for a user, including the totals."""
         try:
+            # Get current date in UTC and parse resetDate correctly
+            current_date = datetime.now(timezone.utc).date()
+            reset_date = datetime.fromisoformat(numOrders.resetDate.replace("Z", "")).date()
+
+            # Check if current date is greater than or equal to resetDate
+            if current_date >= reset_date:
+                # Reset automatic and manual to zero
+                automatic_count = new_orders
+                manual_count = 0
+
+                # Set resetDate to the 1st day of the next month
+                next_month_date = get_next_month_reset_date()
+            else:
+                # Increment counts as usual
+                automatic_count = numOrders.automatic + new_orders
+                manual_count = numOrders.manual
+                next_month_date = numOrders.resetDate
+
             # Update the database with the new counts and totals
             await user_ref.update(
                 {
                     f"store.{store_type}.numOrders": {
-                        "resetDate": numOrders.resetDate,
-                        "automatic": numOrders.automatic + new_orders,
-                        "manual": numOrders.manual,
+                        "resetDate": f"{next_month_date}T00:00:00.000Z",
+                        "automatic": automatic_count,
+                        "manual": manual_count,
                         "totalAutomatic": numOrders.totalAutomatic + new_orders,
                         "totalManual": numOrders.totalManual,
                     }
@@ -245,7 +266,7 @@ class FirebaseDB:
         """
         Add orders as individual documents in the orders sub-collection.
         """
-        orders_ref = self.db.collection("orders").document(uid).collection("ebay")
+        orders_ref: AsyncDocumentReference = self.db.collection("orders").document(uid).collection("ebay")
 
         try:
             # Iterate through the orders and add them as individual documents
@@ -274,7 +295,7 @@ class FirebaseDB:
         """
         try:
             # Reference to the specific order document
-            order_ref = (
+            order_ref: AsyncDocumentReference = (
                 self.db.collection("orders")
                 .document(uid)
                 .collection("ebay")
@@ -290,6 +311,44 @@ class FirebaseDB:
             # Delete the order document
             await order_ref.delete()
             return {"success": True, "message": "Order removed successfully"}
+
+        except Exception as error:
+            return {"success": False, "message": str(error)}
+
+    @handle_firestore_errors
+    async def decrease_listing_quantity(self, uid: str, listing_id: str, quantity: int):
+        """
+        Decrease the quantity of a specific listing by 1.
+        """
+        try:
+            # Reference to the specific listing document
+            listing_ref: AsyncDocumentReference = (
+                self.db.collection("inventory")
+                .document(uid)
+                .collection("ebay")
+                .document(listing_id)
+            )
+
+            listing_snapshot = await listing_ref.get()
+
+            # Check if the listing exists
+            if not listing_snapshot.exists:
+                return {"success": False, "message": "Listing not found"}
+
+            # Get the current quantity and decrease by 1
+            current_quantity = listing_snapshot.get("quantity", 0)
+
+            if (current_quantity - quantity) == 0:
+                # Remove the listing if the quantity reaches 0
+                await listing_ref.delete()
+                return {"success": True, "message": "Listing removed successfully"}
+
+            new_quantity = max(current_quantity - quantity, 0)
+
+            # Update the quantity in the listing document
+            await listing_ref.update({"quantity": new_quantity})
+
+            return {"success": True, "message": "Listing quantity decreased"}
 
         except Exception as error:
             return {"success": False, "message": str(error)}
