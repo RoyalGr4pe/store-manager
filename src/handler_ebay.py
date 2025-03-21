@@ -1,5 +1,5 @@
 # Local Imports
-from src.utils import get_next_month_reset_date
+from src.utils import get_next_month_reset_date, format_date_to_iso
 from src.db_firebase import FirebaseDB
 from src.models import (
     EbayTokenData,
@@ -151,7 +151,7 @@ async def update_ebay_inventory(
 
         await db.add_listings(user.id, ebay_listings)
         await db.set_last_fetched_date(
-            user_ref, "inventory", current_time.isoformat(), "ebay"
+            user_ref, "inventory", format_date_to_iso(current_time), "ebay"
         )
         await db.set_current_no_listings(
             user_ref,
@@ -281,7 +281,7 @@ async def update_ebay_orders(
     try:
         if not ebay.numOrders:
             ebay.numOrders = INumOrders(
-                resetDate=get_next_month_reset_date(),
+                resetDate=format_date_to_iso(get_next_month_reset_date()),
                 automatic=0,
                 manual=0,
                 totalAutomatic=0,
@@ -317,7 +317,7 @@ async def update_ebay_orders(
 
         await db.add_orders(user.id, ebay_orders)
         await db.set_last_fetched_date(
-            user_ref, "orders", current_time.isoformat(), "ebay"
+            user_ref, "orders", format_date_to_iso(current_time), "ebay"
         )
         await db.set_current_no_orders(
             user_ref,

@@ -1,5 +1,5 @@
 # Local Imports
-from src.utils import get_next_month_reset_date
+from src.utils import get_next_month_reset_date, format_date_to_iso
 from src.models import EbayTokenData, StoreType, INumOrders
 
 # External Imports
@@ -127,7 +127,6 @@ class FirebaseDB:
         manual_count: int,
         store_type: StoreType,
     ):
-
         """Set the current number of inventory for a user."""
         await user_ref.update(
             {
@@ -147,10 +146,15 @@ class FirebaseDB:
         store_type: StoreType,
     ):
         """Set the current number of orders for a user, including the totals."""
+        if numOrders.automatic == 0 and new_orders == -1:
+            return {"success": True}
+        
         try:
             # Get current date in UTC and parse resetDate correctly
             current_date = datetime.now(timezone.utc).date()
-            reset_date = datetime.fromisoformat(numOrders.resetDate.replace("Z", "")).date()
+            reset_date = datetime.fromisoformat(
+                numOrders.resetDate.replace("Z", "")
+            ).date()
 
             # Check if current date is greater than or equal to resetDate
             if current_date >= reset_date:
@@ -159,7 +163,7 @@ class FirebaseDB:
                 manual_count = 0
 
                 # Set resetDate to the 1st day of the next month
-                next_month_date = get_next_month_reset_date()
+                next_month_date = format_date_to_iso(get_next_month_reset_date())
             else:
                 # Increment counts as usual
                 automatic_count = numOrders.automatic + new_orders
@@ -170,7 +174,7 @@ class FirebaseDB:
             await user_ref.update(
                 {
                     f"store.{store_type}.numOrders": {
-                        "resetDate": f"{next_month_date}T00:00:00.000Z",
+                        "resetDate": next_month_date,
                         "automatic": automatic_count,
                         "manual": manual_count,
                         "totalAutomatic": numOrders.totalAutomatic + new_orders,
@@ -215,9 +219,7 @@ class FirebaseDB:
         """
         Add listings as individual documents in the inventory sub-collection.
         """
-        inventory_ref = (
-            self.db.collection("inventory").document(uid).collection("ebay")
-        )
+        inventory_ref = self.db.collection("inventory").document(uid).collection("ebay")
 
         try:
             # Iterate through the listings and add them as individual documents
@@ -266,7 +268,9 @@ class FirebaseDB:
         """
         Add orders as individual documents in the orders sub-collection.
         """
-        orders_ref: AsyncDocumentReference = self.db.collection("orders").document(uid).collection("ebay")
+        orders_ref: AsyncDocumentReference = (
+            self.db.collection("orders").document(uid).collection("ebay")
+        )
 
         try:
             # Iterate through the orders and add them as individual documents

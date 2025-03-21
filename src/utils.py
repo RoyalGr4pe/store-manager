@@ -46,7 +46,7 @@ def fetch_users_limits(sub_name, limit_type):
     return limits[formatted_sub_name]
 
 
-def get_next_month_reset_date() -> str:
+def get_next_month_reset_date() -> datetime:
     """Returns the first of the next month as an ISO string."""
     # Use timezone-aware datetime with UTC
     today = datetime.now(timezone.utc)
@@ -58,4 +58,9 @@ def get_next_month_reset_date() -> str:
         next_month = today.replace(month=today.month + 1, day=1)
 
     # Return the date as an ISO string in UTC format
-    return next_month.isoformat()
+    return next_month
+
+
+def format_date_to_iso(date: datetime) -> str:
+    """Helper function to format dates to the required ISO 8601 format (e.g., 2024-11-01T17:12:26.000Z)."""
+    return date.strftime("%Y-%m-%dT%H:%M:%S.000Z")
