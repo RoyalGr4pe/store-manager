@@ -46,6 +46,7 @@ class IPurchase(BaseModel):
     date: str
     platform: str
     price: float
+    quantity: int
 
 class ISale(BaseModel):
     buyerUsername: str

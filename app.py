@@ -1,5 +1,5 @@
 # Local Imports
-from src.utils import fetch_user_member_sub, fetch_users_limits, get_next_month_reset_date
+from src.utils import fetch_user_member_sub, fetch_users_limits, get_next_month_reset_date, format_date_to_iso
 from src.models import IUser, Store, IStore, INumListings, INumOrders
 from src.db_firebase import FirebaseDB
 from src.handler_ebay import check_and_refresh_ebay_token, update_ebay_inventory, update_ebay_orders
@@ -12,6 +12,7 @@ from slowapi.errors import RateLimitExceeded
 from slowapi.util import get_remote_address
 from fastapi import FastAPI, HTTPException, Request
 from slowapi import Limiter
+from pprint import pprint
 
 import uvicorn
 
@@ -193,11 +194,12 @@ async def orders(request: Request):
         if not store:
             user.store = Store()
 
+        reset_date = get_next_month_reset_date()
         if (not store.ebay):
             store.ebay = IStore(
                 numListings=INumListings(automatic=0, manual=0),
                 numOrders=INumOrders(
-                    resetDate=get_next_month_reset_date(),
+                    resetDate=format_date_to_iso(reset_date),
                     automatic=0,
                     manual=0,
                     totalAutomatic=0,
@@ -209,7 +211,7 @@ async def orders(request: Request):
 
         if not ebay.numOrders:
             ebay.numOrders = INumOrders(
-                resetDate=get_next_month_reset_date(),
+                resetDate=format_date_to_iso(reset_date),
                 automatic=0,
                 manual=0,
                 totalAutomatic=0,
@@ -230,6 +232,6 @@ async def orders(request: Request):
 
 
 # Run app if executed directly
-#if __name__ == "__main__":
+if __name__ == "__main__":
     # When running locally
-    #uvicorn.run("app:app", host="0.0.0.0", port=8000, reload=True)
+    uvicorn.run("app:app", host="0.0.0.0", port=8000, reload=True)
