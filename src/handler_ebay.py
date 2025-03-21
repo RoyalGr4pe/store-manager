@@ -10,6 +10,7 @@ from src.models import (
     IEbay,
     INumOrders,
     INumListings,
+    OrderStatus,
 )
 
 # External Imports
@@ -19,6 +20,7 @@ from ebaysdk.trading import Connection as Trading
 from datetime import datetime, timezone, timedelta
 from fastapi import HTTPException
 from dotenv import load_dotenv
+from pprint import pprint
 
 import requests
 import base64
@@ -29,131 +31,8 @@ load_dotenv()
 
 
 # --------------------------------------------------- #
-# eBay Inventory Processing                           #
+# eBay Token Refresh                                  #
 # --------------------------------------------------- #
-
-
-async def update_ebay_inventory(
-    ebay: IStore,
-    db: FirebaseDB,
-    user: IUser,
-    user_ref: AsyncDocumentReference,
-    user_limits: dict,
-) -> None:
-    try:
-        if not ebay.numListings:
-            ebay.numListings = INumListings(automatic=0, manual=0)
-
-        if ebay.numListings.automatic >= user_limits["automatic"]:
-            raise HTTPException(
-                status_code=400,
-                detail="You have hit your limit for automatically fetching listings",
-            )
-
-        current_time = datetime.now(timezone.utc)
-        time_from = ebay.lastFetchedDate.inventory if ebay.lastFetchedDate else None
-
-        if not time_from:
-            time_from = (current_time - timedelta(days=90)).isoformat()
-        else:
-            time_from = ebay.lastFetchedDate.inventory
-
-        ebay_listings_dict = fetch_ebay_listings(
-            user.connectedAccounts.ebay.ebayAccessToken,
-            user_limits["automatic"],
-            time_from,
-        )
-        ebay_listings = ebay_listings_dict.get("content")
-
-        if not ebay_listings:
-            return {"content": []}
-
-        await db.add_listings(user.id, ebay_listings)
-        await db.set_last_fetched_date(
-            user_ref, "inventory", current_time.isoformat(), "ebay"
-        )
-        await db.set_current_no_listings(
-            user_ref,
-            ebay.numListings.automatic + len(ebay_listings),
-            ebay.numListings.manual,
-            "ebay",
-        )
-
-        return {"success": True}
-    except Exception as error:
-        print("update_ebay_inventory() error:", error)
-        return {"error": error}
-
-
-def fetch_ebay_listings(oauth_token, limit, time_from):
-    # Convert time_from to a datetime object
-    time_from_date = datetime.fromisoformat(time_from)
-
-    # Connect to eBay API
-    api = Trading(
-        appid=os.getenv("CLIENT_ID"),
-        devid=os.getenv("DEV_ID"),
-        certid=os.getenv("CLIENT_SECRET"),
-        token=oauth_token,
-        config_file=None,
-    )
-
-    # Set up parameters for the API call
-    params = {
-        "ActiveList": {
-            "Include": True,
-            "Sort": "TimeLeft",  # Sort listings by time remaining
-            "StartTimeFrom": time_from,  # Only fetch listings created after this date
-            "Pagination": {
-                "EntriesPerPage": min(10, limit),  # Limit the number of listings
-                "PageNumber": 1,  # Pagination using offset (page number)
-            },
-        }
-    }
-
-    # Parse the response and extract the necessary listing data
-    listings = []
-    error = None
-
-    try:
-        # Make the eBay API call using GetMyeBaySelling
-        response = api.execute("GetMyeBaySelling", params)
-        response_dict = response.dict()
-
-        items = response_dict.get("ActiveList", {}).get("ItemArray", {}).get("Item", [])
-        for item in items[::-1]:
-            # Get the date the item was listed
-            date_listed = item["ListingDetails"]["StartTime"]
-            # Convert the date_listed from string to datetime object
-            date_listed_obj = datetime.fromisoformat(date_listed)
-
-            quantity = (
-                int(item["QuantityAvailable"]) if "QuantityAvailable" in item else 0
-            )
-            if quantity == 0:
-                continue
-
-            # Check if the date_listed is greater than or equal to time_from
-            if date_listed_obj >= time_from_date:
-                listing_data = {
-                    "itemId": item["ItemID"],
-                    "itemName": item["Title"],
-                    "price": round(
-                        float(item["SellingStatus"]["CurrentPrice"]["value"]), 2
-                    ),
-                    "image": item["PictureDetails"]["GalleryURL"],
-                    "dateListed": date_listed,
-                    "recordType": "automatic",
-                    "quantity": quantity,
-                }
-                listings.append(listing_data)
-
-    except ConnectionError as e:
-        error = e
-
-    finally:
-        return {"content": listings, "error": error}
-
 
 async def check_and_refresh_ebay_token(
     db: FirebaseDB, user_ref: AsyncDocumentReference, ebay_account: IEbay
@@ -230,6 +109,135 @@ async def refresh_ebay_access_token(
         )
 
 
+# --------------------------------------------------- #
+# eBay Inventory Processing                           #
+# --------------------------------------------------- #
+
+
+async def update_ebay_inventory(
+    ebay: IStore,
+    db: FirebaseDB,
+    user: IUser,
+    user_ref: AsyncDocumentReference,
+    user_limits: dict,
+) -> None:
+    try:
+        if not ebay.numListings:
+            ebay.numListings = INumListings(automatic=0, manual=0)
+
+        if ebay.numListings.automatic >= user_limits["automatic"]:
+            raise HTTPException(
+                status_code=400,
+                detail="You have hit your limit for automatically fetching listings",
+            )
+
+        current_time = datetime.now(timezone.utc)
+        time_from = ebay.lastFetchedDate.inventory if ebay.lastFetchedDate else None
+
+        if not time_from:
+            time_from = (current_time - timedelta(days=90)).isoformat()
+        else:
+            time_from = ebay.lastFetchedDate.inventory
+
+        ebay_listings_dict = fetch_ebay_listings(
+            user.connectedAccounts.ebay.ebayAccessToken,
+            user_limits["automatic"],
+            time_from,
+        )
+        ebay_listings = ebay_listings_dict.get("content")
+
+        if not ebay_listings:
+            return {"content": []}
+
+        await db.add_listings(user.id, ebay_listings)
+        await db.set_last_fetched_date(
+            user_ref, "inventory", current_time.isoformat(), "ebay"
+        )
+        await db.set_current_no_listings(
+            user_ref,
+            ebay.numListings.automatic,
+            len(ebay_listings),
+            ebay.numListings.manual,
+            "ebay",
+        )
+
+        return {"success": True}
+    except Exception as error:
+        print("update_ebay_inventory() error:", error)
+        return {"error": error}
+
+
+def fetch_ebay_listings(oauth_token, limit, time_from):
+    # Convert time_from to a datetime object
+    time_from_date = datetime.fromisoformat(time_from)
+
+    # Connect to eBay API
+    api = Trading(
+        appid=os.getenv("CLIENT_ID"),
+        devid=os.getenv("DEV_ID"),
+        certid=os.getenv("CLIENT_SECRET"),
+        token=oauth_token,
+        config_file=None,
+    )
+
+    # Set up parameters for the API call
+    params = {
+        "ActiveList": {
+            "Include": True,
+            "Sort": "TimeLeft",  # Sort listings by time remaining
+            "StartTimeFrom": time_from,  # Only fetch listings created after this date
+            "Pagination": {
+                "EntriesPerPage": min(10, limit),  # Limit the number of listings
+                "PageNumber": 1,  # Pagination using offset (page number)
+            },
+        }
+    }
+
+    # Parse the response and extract the necessary listing data
+    listings = []
+    error = None
+
+    try:
+        # Make the eBay API call using GetMyeBaySelling
+        response = api.execute("GetMyeBaySelling", params)
+        response_dict = response.dict()
+
+        items = response_dict.get("ActiveList", {}).get("ItemArray", {}).get("Item", [])
+        for item in items[::-1]:
+            # Get the date the item was listed
+            date_listed = item["ListingDetails"]["StartTime"]
+            # Convert the date_listed from string to datetime object
+            date_listed_obj = datetime.fromisoformat(date_listed)
+
+            quantity = (
+                int(item["QuantityAvailable"]) if "QuantityAvailable" in item else 0
+            )
+            if quantity == 0:
+                continue
+
+            # Check if the date_listed is greater than or equal to time_from
+            if date_listed_obj >= time_from_date:
+                listing_data = {
+                    "initialQuantity": quantity,
+                    "itemId": item["ItemID"],
+                    "itemName": item["Title"],
+                    "price": round(
+                        float(item["SellingStatus"]["CurrentPrice"]["value"]), 2
+                    ),
+                    "image": item["PictureDetails"]["GalleryURL"],
+                    "dateListed": date_listed,
+                    "recordType": "automatic",
+                    "quantity": quantity,
+                }
+                listings.append(listing_data)
+
+    except ConnectionError as e:
+        error = e
+
+    finally:
+        return {"content": listings, "error": error}
+
+
 def fetch_listing_details_from_ebay(item_id: str, oauth_token: str):
     # Make a call to the eBay API to fetch the listing details
     api = Trading(
@@ -287,7 +295,7 @@ async def update_ebay_orders(
             )
 
         current_time = datetime.now(timezone.utc)
-        time_from = ebay.lastFetchedDate.orders if ebay.lastFetchedDate else None
+        time_from =  ebay.lastFetchedDate.orders if ebay.lastFetchedDate else None
         if not time_from:
             time_from = (current_time - timedelta(days=90)).isoformat()
         else:
@@ -296,6 +304,8 @@ async def update_ebay_orders(
         ebay_orders_dict = await fetch_ebay_orders(
             db,
             user.id,
+            user_ref,
+            user,
             user.connectedAccounts.ebay.ebayAccessToken,
             user_limits["automatic"],
             time_from,
@@ -303,7 +313,7 @@ async def update_ebay_orders(
         ebay_orders = ebay_orders_dict.get("content")
 
         if not ebay_orders:
-            return {"content": []}
+            return {"success": True}
 
         await db.add_orders(user.id, ebay_orders)
         await db.set_last_fetched_date(
@@ -325,6 +335,8 @@ async def update_ebay_orders(
 async def fetch_ebay_orders(
     db: FirebaseDB,
     uid: str,
+    user_ref: AsyncDocumentReference,
+    user: IUser,
     oauth_token: str,
     limit: int,
     time_from,
@@ -363,33 +375,51 @@ async def fetch_ebay_orders(
         orders = order_array.get("Order", [])
 
         for order in orders[::-1]:
-            if is_refunded_or_incomplete(order):
+            if should_remove_order(order):
                 await db.remove_order(uid, order["OrderID"])
+                await db.set_current_no_orders(
+                    user_ref, user.store.ebay.numOrders, -1, "ebay"
+                )
                 continue
 
-            processed_items = await enrich_order_items(db, uid, oauth_token, order)
+            enriched_items_list = await enrich_order_items(
+                db, uid, user_ref, user, oauth_token, order
+            )
 
-            detailed_order_data = merge_enriched_data_with_order(processed_items, order)
-
-            order_details.extend(detailed_order_data)
+            order_details.extend(enriched_items_list)
 
     except Exception as e:
+        print("error", e)
         error = e
 
     finally:
         return {"content": order_details, "error": error}
 
 
-def is_refunded_or_incomplete(order):
+def should_remove_order(order):
     # Check if the item has been refunded or the order is not completed
     refunds = order.get("MonetaryDetails", {}).get("Refunds")
-    if (refunds is not None) or (order["OrderStatus"] != "Completed"):
-        # Skip further processing for incomplete orders
+    if refunds is not None:
         return True
+
+    order_status: OrderStatus = order.get("OrderStatus")
+
+    if order_status in ["Active", "InProcess", "Completed", "Shipped", "InProcess"]:
+        return False
+    elif order_status in ["Cancelled", "Inactive", "Invalid"]:
+        return True
+
     return False
 
 
-async def enrich_order_items(db: FirebaseDB, uid: str, oauth_token: str, order):
+async def enrich_order_items(
+    db: FirebaseDB,
+    uid: str,
+    user_ref: AsyncDocumentReference,
+    user: IUser,
+    oauth_token: str,
+    order: dict,
+):
     # This list will contain the main details for each order, excluding data such as
     # image, purchasePlatform, purchaseDate etc.
     enriched_items_list = []
@@ -410,28 +440,58 @@ async def enrich_order_items(db: FirebaseDB, uid: str, oauth_token: str, order):
                 # If listing data is missing, make an API call to get the item details
                 listing_data = fetch_listing_details_from_ebay(item_id, oauth_token)
             else:
-                await db.remove_listing(uid, item_id)
+                await db.decrease_listing_quantity(
+                    uid, item_id, transaction["QuantityPurchased"]
+                )
+                await db.set_current_no_listings(
+                    user_ref,
+                    user.store.ebay.numListings.automatic,
+                    transaction["QuantityPurchased"],
+                    user.store.ebay.numListings.manual,
+                    "ebay",
+                )
 
             quantity_sold = int(transaction["QuantityPurchased"])
+            total_sale_price = float(order["AmountPaid"]["value"])
+            sale_price = quantity_sold * float(transaction["TransactionPrice"]["value"])
+            shipping = enrich_shipping_details(order, transaction["ShippingDetails"])
+
             # Prepare transaction data with additional listing details if available
             enriched_item_data = {
-                "orderId": order["OrderID"],
-                "legacyItemId": item_id,
+                "additionalFees": round(
+                    total_sale_price - sale_price - shipping["fees"],
+                    2,
+                ),
+                "customTag": None,
                 "itemName": transaction["Item"]["Title"],
-                "quantitySold": quantity_sold,
-                "saleDate": order["CreatedTime"],
-                "salePrice": quantity_sold
-                * float(transaction["TransactionPrice"]["value"]),
+                "legacyItemId": item_id,
+                "orderId": order["OrderID"],
+                "purchase": {
+                    "date": None,
+                    "platform": None,
+                    "price": None,
+                    "quantity": None
+                },
                 "recordType": "automatic",
-                "salePlatform": transaction["Item"].get("Site", "eBay"),
-                "buyerUsername": order["BuyerUserID"],
+                "sale": {
+                    "date": order["CreatedTime"],
+                    "platform": transaction["Item"].get("Site", "eBay"),
+                    "price": sale_price,
+                    "quantity": quantity_sold,
+                    "buyerUsername": order["BuyerUserID"],
+                },
+                "shipping": shipping,
+                "status": order["OrderStatus"],
             }
 
             # Add image and dateListed from listing data if available
             if listing_data:
                 enriched_item_data["image"] = listing_data.get("image")
                 enriched_item_data["listingDate"] = listing_data.get("dateListed")
-                enriched_item_data["purchaseDate"] = listing_data.get("dateListed")
+                enriched_item_data["purchase"]["date"] = listing_data.get("dateListed")
+                enriched_item_data["purchase"]["quantity"] = listing_data.get(
+                    "initialQuantity"
+                )
 
             enriched_items_list.append(enriched_item_data)
 
@@ -442,43 +502,67 @@ async def enrich_order_items(db: FirebaseDB, uid: str, oauth_token: str, order):
         return enriched_items_list
 
 
-def merge_enriched_data_with_order(enriched_items_list, order):
-    detailed_order_data = []
-
+def enrich_shipping_details(order: dict, shipping_details: dict):
     try:
-        # Total sale price (sum of item prices)
-        total_sale_price = float(order["AmountPaid"]["value"])
-
-        # Calculate shipping fees
-        shipping_cost = calculate_shipping_cost(order)
-
-        # Aggregate order details including item-level details
-        for enriched_item in enriched_items_list:
-            detailed_order_data.append(
-                {
-                    **enriched_item,
-                    "salePrice": enriched_item["salePrice"],
-                    "shippingFees": shipping_cost,
-                    "additionalFees": round(
-                        total_sale_price - enriched_item["salePrice"] - shipping_cost, 2
-                    ),
-                    "purchasePrice": None,
-                    "purchasePlatform": None,
-                }
+        # Parse dates safely
+        shipped_time = (
+            datetime.fromisoformat(order.get("ShippedTime", "").replace("Z", "+00:00"))
+            if order.get("ShippedTime")
+            else None
+        )
+        paid_time = (
+            datetime.fromisoformat(order.get("PaidTime", "").replace("Z", "+00:00"))
+            if order.get("PaidTime")
+            else None
+        )
+        actual_delivery_time = (
+            datetime.fromisoformat(
+                order.get("ShippingServiceSelected", {})
+                .get("ShippingPackageInfo", {})
+                .get("ActualDeliveryTime", "")
+                .replace("Z", "+00:00")
             )
+            if order.get("ShippingServiceSelected", {})
+            .get("ShippingPackageInfo", {})
+            .get("ActualDeliveryTime")
+            else None
+        )
+
+        tracking_details = (
+            shipping_details.get("ShipmentTrackingDetails", {})
+            if shipping_details.get("ShipmentTrackingDetails")
+            else {}
+        )
+
+        return {
+            "fees": calculate_shipping_cost(order),
+            "paymentToShipped": (
+                (shipped_time - paid_time).days if shipped_time and paid_time else None
+            ),
+            "service": tracking_details.get("ShippingCarrierUsed", ""),
+            "timeDays": (
+                (actual_delivery_time - shipped_time).days
+                if actual_delivery_time and shipped_time
+                else None
+            ),
+            "trackingNumber": tracking_details.get("ShipmentTrackingNumber", ""),
+        }
 
     except Exception as error:
-        print(error)
-
-    finally:
-        return detailed_order_data
+        print(f"Error in enrich_shipping_details: ", error)
+        return {}
 
 
 def calculate_shipping_cost(order):
     shipping_service_options = order["ShippingDetails"].get(
-        "ShippingServiceOptions", {}
+        "ShippingServiceOptions", []
     )
+
+    if (len(shipping_service_options) == 0):
+        return 0
+    
     shipping_fees = 0
+
     try:
         # Handle if the shipping fees are stored in a list
         # This can occur if eBay has to authenticate an item
@@ -495,7 +579,134 @@ def calculate_shipping_cost(order):
                 )
 
     except Exception as error:
-        print(error)
+        print("Error in calculate_shipping_cost: ", error)
 
     finally:
         return shipping_fees
+
+
+{
+    "AdjustmentAmount": {"_currencyID": "GBP", "value": "0.0"},
+    "AmountPaid": {"_currencyID": "GBP", "value": "69.99"},
+    "AmountSaved": {"_currencyID": "GBP", "value": "0.0"},
+    "BuyerUserID": "amin9200",
+    "CheckoutStatus": {
+        "IntegratedMerchantCreditCardEnabled": "false",
+        "LastModifiedTime": "2025-02-11T11:36:40.000Z",
+        "PaymentMethod": "CustomCode",
+        "Status": "Complete",
+        "eBayPaymentStatus": "NoPaymentFailure",
+    },
+    "ContainseBayPlusTransaction": "false",
+    "CreatedTime": "2025-02-02T14:00:30.000Z",
+    "EIASToken": "nY+sHZ2PrBmdj6wVnY+sEZ2PrA2dj6wNlYGjCJaApAWdj6x9nY+seQ==",
+    "IsMultiLegShipping": "false",
+    "MonetaryDetails": {
+        "Payments": {
+            "Payment": {
+                "FeeOrCreditAmount": {"_currencyID": "GBP", "value": "0.0"},
+                "Payee": {"_type": "eBayUser", "value": "flippify"},
+                "Payer": {"_type": "eBayUser", "value": "amin9200"},
+                "PaymentAmount": {"_currencyID": "GBP", "value": "69.99"},
+                "PaymentStatus": "Succeeded",
+                "PaymentTime": "2025-02-02T14:00:29.543Z",
+                "ReferenceID": {
+                    "_type": "ExternalTransactionID",
+                    "value": "2354062418501",
+                },
+            }
+        }
+    },
+    "OrderID": "09-12659-36141",
+    "OrderStatus": "Completed",
+    "PaidTime": "2025-02-02T14:00:29.543Z",
+    "PaymentHoldStatus": "None",
+    "ShippedTime": "2025-02-05T13:30:41.000Z",
+    "ShippingAddress": {
+        "AddressID": "2266837630020",
+        "AddressOwner": "eBay",
+        "CityName": "Garmouth",
+        "Country": "GB",
+        "CountryName": "United Kingdom",
+        "Name": "Andy Minton",
+        "Phone": "07920537723",
+        "PostalCode": "IV32 7LG",
+        "StateOrProvince": "Moray",
+        "Street1": "Calidean At BURNIESTRYPE",
+        "Street2": "Muir Of Lochs ebayjfxyx6r",
+    },
+    "ShippingDetails": {
+        "SalesTax": {
+            "SalesTaxAmount": {"_currencyID": "GBP", "value": "0.0"},
+            "SalesTaxPercent": "0.0",
+            "ShippingIncludedInTax": "false",
+        },
+        "SellingManagerSalesRecordNumber": "146",
+        "ShippingServiceOptions": {
+            "ExpeditedService": "false",
+            "ShippingService": "UK_YodelStoreToDoor",
+            "ShippingServicePriority": "1",
+            "ShippingTimeMax": "4",
+            "ShippingTimeMin": "2",
+        },
+    },
+    "ShippingServiceSelected": {
+        "ShippingPackageInfo": {"ActualDeliveryTime": "2025-02-11T10:31:31.000Z"},
+        "ShippingService": "UK_YodelStoreToDoor",
+        "ShippingServiceCost": {"_currencyID": "GBP", "value": "0.0"},
+    },
+    "Subtotal": {"_currencyID": "GBP", "value": "69.99"},
+    "Total": {"_currencyID": "GBP", "value": "69.99"},
+    "TransactionArray": {
+        "Transaction": [
+            {
+                "ActualHandlingCost": {"_currencyID": "GBP", "value": "0.0"},
+                "ActualShippingCost": {"_currencyID": "GBP", "value": "0.0"},
+                "Buyer": {
+                    "Email": "Invalid Request",
+                    "UserFirstName": None,
+                    "UserLastName": None,
+                },
+                "CreatedDate": "2025-02-02T14:00:30.000Z",
+                "InventoryReservationID": "1595132569025",
+                "Item": {
+                    "ItemID": "387845018425",
+                    "Site": "UK",
+                    "Title": "Pokemon TCG Scarlet "
+                    "And Violet Prismatic "
+                    "Evolution Elite "
+                    "Trainer Box / In "
+                    "Hand ✅",
+                },
+                "OrderLineItemID": "387845018425-1595132569025",
+                "Platform": "eBay",
+                "QuantityPurchased": "1",
+                "ShippedTime": "2025-02-05T13:30:41.000Z",
+                "ShippingDetails": {
+                    "SalesTax": {"SalesTaxPercent": "0.0"},
+                    "SellingManagerSalesRecordNumber": "146",
+                    "ShipmentTrackingDetails": {
+                        "ShipmentTrackingNumber": "87RKJ9287400A085",
+                        "ShippingCarrierUsed": "Yodel",
+                    },
+                },
+                "Status": {"PaymentHoldStatus": "None"},
+                "Taxes": {
+                    "TaxDetails": {
+                        "Imposition": "SalesTax",
+                        "TaxAmount": {"_currencyID": "GBP", "value": "0.0"},
+                        "TaxDescription": "SalesTax",
+                        "TaxOnHandlingAmount": {"_currencyID": "GBP", "value": "0.0"},
+                        "TaxOnShippingAmount": {"_currencyID": "GBP", "value": "0.0"},
+                        "TaxOnSubtotalAmount": {"_currencyID": "GBP", "value": "0.0"},
+                    },
+                    "TotalTaxAmount": {"_currencyID": "GBP", "value": "0.0"},
+                },
+                "TransactionID": "1595132569025",
+                "TransactionPrice": {"_currencyID": "GBP", "value": "69.99"},
+                "TransactionSiteID": "UK",
+                "eBayPlusTransaction": "false",
+            }
+        ]
+    },
+}
