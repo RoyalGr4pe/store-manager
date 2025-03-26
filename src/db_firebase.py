@@ -61,16 +61,18 @@ class FirebaseDB:
             # Mark as initialized
             FirebaseDB._initialized = True
 
-        # Firestore client
-        self.db = AsyncClient(
-            project=FirebaseDB.FIREBASE_PROJECT_ID, credentials=firebase_credentials
+    async def get_db_client(self) -> AsyncClient:
+        return AsyncClient(
+            project=FirebaseDB.FIREBASE_PROJECT_ID,
+            credentials=FirebaseDB._firebase_credentials,
         )
 
-    def query_user_ref(self, uid: str) -> AsyncDocumentReference:
+    async def query_user_ref(self, uid: str) -> AsyncDocumentReference:
         """
         Retrieve a user reference by uid.
         """
-        return self.db.collection("users").document(uid)
+        db: AsyncClient = await self.get_db_client()
+        return db.collection("users").document(uid)
 
     @handle_firestore_errors
     async def update_user_token(
@@ -148,7 +150,7 @@ class FirebaseDB:
         """Set the current number of orders for a user, including the totals."""
         if numOrders.automatic == 0 and new_orders == -1:
             return {"success": True}
-        
+
         try:
             # Get current date in UTC and parse resetDate correctly
             current_date = datetime.now(timezone.utc).date()
@@ -194,9 +196,10 @@ class FirebaseDB:
         Retrieve a specific listing for a user from the listings sub-collection.
         """
         try:
+            db: AsyncClient = await self.get_db_client()
             # Reference to the specific listing document
             listing_ref = (
-                self.db.collection("inventory")
+                db.collection("inventory")
                 .document(uid)
                 .collection("ebay")
                 .document(listing_id)
@@ -219,7 +222,8 @@ class FirebaseDB:
         """
         Add listings as individual documents in the inventory sub-collection.
         """
-        inventory_ref = self.db.collection("inventory").document(uid).collection("ebay")
+        db: AsyncClient = await self.get_db_client()
+        inventory_ref = db.collection("inventory").document(uid).collection("ebay")
 
         try:
             # Iterate through the listings and add them as individual documents
@@ -248,9 +252,10 @@ class FirebaseDB:
         Remove a specific listing from the listings sub-collection.
         """
         try:
+            db: AsyncClient = await self.get_db_client()
             # Reference to the specific listing document
             listing_ref = (
-                self.db.collection("inventory")
+                db.collection("inventory")
                 .document(uid)
                 .collection("listings")
                 .document(listing_id)
@@ -268,8 +273,9 @@ class FirebaseDB:
         """
         Add orders as individual documents in the orders sub-collection.
         """
+        db: AsyncClient = await self.get_db_client()
         orders_ref: AsyncDocumentReference = (
-            self.db.collection("orders").document(uid).collection("ebay")
+            db.collection("orders").document(uid).collection("ebay")
         )
 
         try:
@@ -298,9 +304,10 @@ class FirebaseDB:
         Remove a specific order from the orders sub-collection.
         """
         try:
+            db: AsyncClient = await self.get_db_client()
             # Reference to the specific order document
             order_ref: AsyncDocumentReference = (
-                self.db.collection("orders")
+                db.collection("orders")
                 .document(uid)
                 .collection("ebay")
                 .document(order_id)

@@ -81,7 +81,7 @@ async def fetch_user_and_update_tokens(
 
     # Fetch the user from the database
     db = get_db()
-    user_ref = db.query_user_ref(uid)
+    user_ref = await db.query_user_ref(uid)
     user_snapshot = await user_ref.get()
     user_doc = user_snapshot.to_dict()
 
