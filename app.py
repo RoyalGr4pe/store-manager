@@ -15,6 +15,7 @@ from fastapi import FastAPI
 from slowapi import Limiter
 from pprint import pprint
 
+import traceback
 import uvicorn
 
 
@@ -66,50 +67,56 @@ def get_db():
 async def fetch_user_and_update_tokens(
     request: Request,
 ) -> tuple[AsyncDocumentReference, DocumentSnapshot, IUser] | HTTPException:
-    uid = request.query_params.get("uid")
-    auth_header = request.headers.get("Authorization")
+    try:
+        uid = request.query_params.get("uid")
+        auth_header = request.headers.get("Authorization")
 
-    token = None
-    # Check if the header is present and starts with "Bearer"
-    if auth_header and auth_header.startswith("Bearer "):
-        # Extract the token after "Bearer "
-        token = auth_header.split(" ")[1]
-    else:
-        return HTTPException(
-            status_code=401, detail="Unauthorized: No valid token provided"
-        )
+        token = None
+        # Check if the header is present and starts with "Bearer"
+        if auth_header and auth_header.startswith("Bearer "):
+            # Extract the token after "Bearer "
+            token = auth_header.split(" ")[1]
+        else:
+            return HTTPException(
+                status_code=401, detail="Unauthorized: No valid token provided"
+            )
 
-    # Fetch the user from the database
-    db = get_db()
-    user_ref = await db.query_user_ref(uid)
-    user_snapshot = await user_ref.get()
-    user_doc = user_snapshot.to_dict()
+        # Fetch the user from the database
+        db = get_db()
+        user_ref = await db.query_user_ref(uid)
+        user_snapshot = await user_ref.get()
+        user_doc = user_snapshot.to_dict()
 
-    if not user_doc:
-        return HTTPException(status_code=404, detail="User not found")
+        if not user_doc:
+            return HTTPException(status_code=404, detail="User not found")
 
-    user = IUser(**user_doc)
+        user = IUser(**user_doc)
 
-    # Check if the user has connected their eBay account
-    connected_accounts = user.connectedAccounts
-    ebay_account = connected_accounts.ebay
-    if not ebay_account:
-        return HTTPException(
-            status_code=401, detail="Unauthorized: eBay account not connected"
-        )
+        # Check if the user has connected their eBay account
+        connected_accounts = user.connectedAccounts
+        ebay_account = connected_accounts.ebay
+        if not ebay_account:
+            return HTTPException(
+                status_code=401, detail="Unauthorized: eBay account not connected"
+            )
 
-    # Confirm the give access token is the same as the one stored in the database
-    if ebay_account.ebayAccessToken != token:
-        return HTTPException(
-            status_code=401, detail="Unauthorized: Invalid token provided"
-        )
+        # Confirm the give access token is the same as the one stored in the database
+        if ebay_account.ebayAccessToken != token:
+            return HTTPException(
+                status_code=401, detail="Unauthorized: Invalid token provided"
+            )
 
-    token_update_result = await check_and_refresh_ebay_token(db, user_ref, ebay_account)
-    if not token_update_result.get("success"):
-        return HTTPException(
-            status_code=401,
-            detail=f"Unauthorized: Token refresh failed. {token_update_result.get('error')}",
-        )
+        token_update_result = await check_and_refresh_ebay_token(db, user_ref, ebay_account)
+        if not token_update_result.get("success"):
+            return HTTPException(
+                status_code=401,
+                detail=f"Unauthorized: Token refresh failed. {token_update_result.get('error')}",
+            )
+
+    except Exception as error:
+        print("Error in fetch_user_and_update_tokens()", error)
+        print(traceback.format_exc())
+        return HTTPException(status_code=500, detail=str)
 
     return user_ref, user_snapshot, user
 
@@ -123,20 +130,26 @@ async def root(request: Request):
 # Update inventory endpoint
 @app.get("/update-inventory")
 @limiter.limit("3/second")
-async def active_listings(request: Request):
-    user_info = await fetch_user_and_update_tokens(request)
-    if isinstance(user_info, HTTPException):
-        raise user_info
+async def update_inventory(request: Request):
+    try:
+        user_info = await fetch_user_and_update_tokens(request)
+        if isinstance(user_info, HTTPException):
+            raise user_info
 
-    user_ref, _, user = user_info
-    member_subscription = fetch_user_member_sub(user)
-    if not member_subscription:
-        raise HTTPException(
-            status_code=400, detail="User does not have a valid subscription"
-        )
+        user_ref, _, user = user_info
+        member_subscription = fetch_user_member_sub(user)
+        if not member_subscription:
+            raise HTTPException(
+                status_code=400, detail="User does not have a valid subscription"
+            )
 
-    user_limits: dict = fetch_users_limits(member_subscription.name, "listings")
-    db = get_db()
+        user_limits: dict = fetch_users_limits(member_subscription.name, "listings")
+        db = get_db()
+
+    except Exception as error:
+        print("Error in update_inventory() | 1 ", error)
+        print(traceback.format_exc())
+        raise HTTPException(status_code=500, detail=str(error))
 
     errors = []
 
@@ -166,26 +179,34 @@ async def active_listings(request: Request):
         return {"success": True}
 
     except Exception as error:
+        print("Error in update_inventory() | 2 ", error)
+        print(traceback.format_exc())
         raise HTTPException(status_code=500, detail=str(error))
 
 
 # Update orders endpoint
 @app.get("/update-orders")
 @limiter.limit("3/second")
-async def orders(request: Request):
-    user_info = await fetch_user_and_update_tokens(request)
-    if isinstance(user_info, HTTPException):
-        raise user_info
+async def update_orders(request: Request):
+    try:
+        user_info = await fetch_user_and_update_tokens(request)
+        if isinstance(user_info, HTTPException):
+            raise user_info
 
-    user_ref, _, user = user_info
-    member_subscription = fetch_user_member_sub(user)
-    if not member_subscription:
-        raise HTTPException(
-            status_code=400, detail="User does not have a valid subscription"
-        )
+        user_ref, _, user = user_info
+        member_subscription = fetch_user_member_sub(user)
+        if not member_subscription:
+            raise HTTPException(
+                status_code=400, detail="User does not have a valid subscription"
+            )
 
-    user_limits: dict = fetch_users_limits(member_subscription.name, "orders")
-    db = get_db()
+        user_limits: dict = fetch_users_limits(member_subscription.name, "orders")
+        db = get_db()
+
+    except Exception as error:
+        print("Error in update_orders() | 1 ", error)
+        print(traceback.format_exc())
+        raise HTTPException(status_code=500, detail=str(error))
 
     errors = []
 
@@ -228,10 +249,12 @@ async def orders(request: Request):
         return {"success": True}
 
     except Exception as error:
+        print("Error in update_orders() | 2 ", error)
+        print(traceback.format_exc())
         raise HTTPException(status_code=500, detail=str(error))
 
 
 # Run app if executed directly
-#if __name__ == "__main__":
-    # When running locally
-    #uvicorn.run("app:app", host="0.0.0.0", port=8000, reload=True)
+# if __name__ == "__main__":
+# When running locally
+# uvicorn.run("app:app", host="0.0.0.0", port=8000, reload=True)
