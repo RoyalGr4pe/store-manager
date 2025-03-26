@@ -154,9 +154,10 @@ async def update_inventory(request: Request):
     errors = []
 
     try:
-        store = user.store
-        if not store:
+        if not user.store:
             user.store = Store()
+
+        store = user.store
 
         if (not store.ebay):
             store.ebay = IStore(
@@ -211,9 +212,10 @@ async def update_orders(request: Request):
     errors = []
 
     try:
-        store = user.store
-        if not store:
+        if not user.store:
             user.store = Store()
+
+        store = user.store
 
         reset_date = get_next_month_reset_date()
         if (not store.ebay):
