@@ -11,6 +11,7 @@ from fastapi.responses import JSONResponse
 from slowapi.errors import RateLimitExceeded
 from slowapi.util import get_remote_address
 from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI
 from slowapi import Limiter
 from pprint import pprint
 
@@ -46,10 +47,9 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=["https://flippify.io", "http://localhost:3000"],
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "PUT", "DELETE"],
+    allow_headers=["X-Requested-With", "Authorization", "Content-Type"],
 )
-
 
 # Connect to Firebase
 db = None
@@ -122,7 +122,7 @@ async def root(request: Request):
 
 # Update inventory endpoint
 @app.get("/update-inventory")
-@limiter.limit("1/second")
+@limiter.limit("3/second")
 async def active_listings(request: Request):
     user_info = await fetch_user_and_update_tokens(request)
     if isinstance(user_info, HTTPException):
@@ -171,7 +171,7 @@ async def active_listings(request: Request):
 
 # Update orders endpoint
 @app.get("/update-orders")
-@limiter.limit("1/second")
+@limiter.limit("3/second")
 async def orders(request: Request):
     user_info = await fetch_user_and_update_tokens(request)
     if isinstance(user_info, HTTPException):
@@ -232,6 +232,6 @@ async def orders(request: Request):
 
 
 # Run app if executed directly
-if __name__ == "__main__":
+#if __name__ == "__main__":
     # When running locally
-    uvicorn.run("app:app", host="0.0.0.0", port=8000, reload=True)
+    #uvicorn.run("app:app", host="0.0.0.0", port=8000, reload=True)
