@@ -4,17 +4,17 @@
             "automatic": 1000000,
             "manual": 1000000
         },
+        "free": {
+            "automatic": 10,
+            "manual": 20
+        },
         "standard": {
-            "automatic": 30,
-            "manual": 30
+            "automatic": 100,
+            "manual": 100
         },
         "pro": {
-            "automatic": 300,
-            "manual": 300
-        },
-        "elite": {
-            "automatic": 1000,
-            "manual": 1000
+            "automatic": 500,
+            "manual": 500
         }
     },
     "orders": {
@@ -22,17 +22,17 @@
             "automatic": 1000000,
             "manual": 1000000
         },
+        "free": {
+            "automatic": 10,
+            "manual": 20
+        },
         "standard": {
-            "automatic": 30,
-            "manual": 30
+            "automatic": 100,
+            "manual": 100
         },
         "pro": {
-            "automatic": 300,
-            "manual": 300
-        },
-        "elite": {
-            "automatic": 1000,
-            "manual": 1000
+            "automatic": 500,
+            "manual": 500
         }
     }
 }
