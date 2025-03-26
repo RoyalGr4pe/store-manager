@@ -38,11 +38,12 @@ class FirebaseDB:
 
     # A flag to track initialization
     _initialized = False
+    _firebase_credentials = None
 
     def __init__(self) -> None:
         if not FirebaseDB._initialized:
             # Credentials for service account
-            firebase_credentials = service_account.Credentials.from_service_account_info(
+            FirebaseDB._firebase_credentials = service_account.Credentials.from_service_account_info(
                 {
                     "type": "service_account",
                     "project_id": FirebaseDB.FIREBASE_PROJECT_ID,
