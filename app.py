@@ -51,7 +51,7 @@ app.add_middleware(
 )
 
 
-# Connect to Mongo and Firebase
+# Connect to Firebase
 db = None
 
 
