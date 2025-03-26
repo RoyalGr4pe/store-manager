@@ -44,7 +44,7 @@ app.add_exception_handler(RateLimitExceeded, ratelimit_error)
 # Setup CORS
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=["https://flippify.io", "http://localhost:3000"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
