@@ -22,6 +22,7 @@ from fastapi import HTTPException
 from dotenv import load_dotenv
 from pprint import pprint
 
+import traceback
 import requests
 import base64
 import os
@@ -33,6 +34,7 @@ load_dotenv()
 # --------------------------------------------------- #
 # eBay Token Refresh                                  #
 # --------------------------------------------------- #
+
 
 async def check_and_refresh_ebay_token(
     db: FirebaseDB, user_ref: AsyncDocumentReference, ebay_account: IEbay
@@ -172,6 +174,7 @@ async def update_ebay_inventory(
         return {"success": True}
     except Exception as error:
         print("update_ebay_inventory() error:", error)
+        print(traceback.format_exc())
         return {"error": error}
 
 
@@ -303,8 +306,10 @@ async def update_ebay_orders(
             )
 
         current_time = datetime.now(timezone.utc)
-        time_from =  ebay.lastFetchedDate.orders if ebay.lastFetchedDate else None
+        time_from = ebay.lastFetchedDate.orders if ebay.lastFetchedDate else None
+        first_lookup = False
         if not time_from:
+            first_lookup = True
             time_from = (current_time - timedelta(days=90)).isoformat()
         else:
             time_from = ebay.lastFetchedDate.orders
@@ -317,6 +322,7 @@ async def update_ebay_orders(
             user.connectedAccounts.ebay.ebayAccessToken,
             user_limits["automatic"],
             time_from,
+            first_lookup,
         )
         ebay_orders: list = ebay_orders_dict.get("content")
 
@@ -339,13 +345,15 @@ async def update_ebay_orders(
         await db.set_current_no_orders(
             user_ref,
             ebay.numOrders,
-            len(orders_to_add),
+            len(current_month_orders[:available_slots]),
+            len(older_orders),
             "ebay",
         )
 
         return {"success": True}
     except Exception as error:
         print("update_ebay_orders() error:", error)
+        print(traceback.format_exc())
         return {"error": error}
 
 
@@ -357,6 +365,7 @@ async def fetch_ebay_orders(
     oauth_token: str,
     limit: int,
     time_from,
+    first_lookup: bool,
 ):
     # Connect to eBay API
     api = Trading(
@@ -366,6 +375,9 @@ async def fetch_ebay_orders(
         token=oauth_token,
         config_file=None,
     )
+
+    if first_lookup:
+        limit = 1000
 
     # Set up parameters for the API call
     params = {
@@ -392,11 +404,17 @@ async def fetch_ebay_orders(
         orders = order_array.get("Order", [])
 
         for order in orders[::-1]:
-            if should_remove_order(order):
+            remove_order = should_remove_order(order)
+
+            # If the order should be removed and the order exists in the database, remove it
+            if remove_order and not first_lookup:
                 await db.remove_order(uid, order["OrderID"])
                 await db.set_current_no_orders(
                     user_ref, user.store.ebay.numOrders, -1, "ebay"
                 )
+                continue
+            # If the order should be removed and this is the first lookup, skip it
+            elif remove_order and first_lookup:
                 continue
 
             enriched_items_list = await enrich_order_items(
@@ -407,6 +425,7 @@ async def fetch_ebay_orders(
 
     except Exception as e:
         print("error", e)
+        print(traceback.format_exc())
         error = e
 
     finally:
@@ -487,7 +506,7 @@ async def enrich_order_items(
                     "date": None,
                     "platform": None,
                     "price": None,
-                    "quantity": None
+                    "quantity": None,
                 },
                 "recordType": "automatic",
                 "sale": {
@@ -575,9 +594,9 @@ def calculate_shipping_cost(order):
         "ShippingServiceOptions", []
     )
 
-    if (len(shipping_service_options) == 0):
+    if len(shipping_service_options) == 0:
         return 0
-    
+
     shipping_fees = 0
 
     try:
@@ -604,150 +623,38 @@ def calculate_shipping_cost(order):
 
 def split_orders_by_date(ebay_orders: list[dict]):
     """
-    This function splits the ebay orders by paid time. There are two splits, orders which are
-    older then the start of the current month and orders which are younger then the current month
+    Splits eBay orders by sale date.
+    - Orders older than the start of the current month.
+    - Orders from the current month.
     """
 
-    current_month = datetime.now().month
-    current_year = datetime.now().year
+    current_date = datetime.now()
+    current_month = current_date.month
+    current_year = current_date.year
 
     older_orders = []
     current_month_orders = []
 
     for order in ebay_orders:
-        paid_time = order.get("PaidTime")
-        if paid_time:
-            paid_date = datetime.fromisoformat(paid_time)
+        sale_info = order.get("sale", {})
+        paid_time = sale_info.get("date")
+
+        if not paid_time:
+            continue  # Skip orders with no valid sale date
+
+        try:
+            # Correctly parse ISO format with 'Z' for UTC
+            paid_date = datetime.fromisoformat(paid_time.replace("Z", "+00:00"))
+
+            # Split orders based on month and year
             if paid_date.month == current_month and paid_date.year == current_year:
                 current_month_orders.append(order)
             else:
                 older_orders.append(order)
 
+        except ValueError:
+            # Skip invalid date formats
+            print(f"Skipping invalid date format: {paid_time}")
+            continue
+
     return older_orders, current_month_orders
-
-
-{
-    "AdjustmentAmount": {"_currencyID": "GBP", "value": "0.0"},
-    "AmountPaid": {"_currencyID": "GBP", "value": "69.99"},
-    "AmountSaved": {"_currencyID": "GBP", "value": "0.0"},
-    "BuyerUserID": "amin9200",
-    "CheckoutStatus": {
-        "IntegratedMerchantCreditCardEnabled": "false",
-        "LastModifiedTime": "2025-02-11T11:36:40.000Z",
-        "PaymentMethod": "CustomCode",
-        "Status": "Complete",
-        "eBayPaymentStatus": "NoPaymentFailure",
-    },
-    "ContainseBayPlusTransaction": "false",
-    "CreatedTime": "2025-02-02T14:00:30.000Z",
-    "EIASToken": "nY+sHZ2PrBmdj6wVnY+sEZ2PrA2dj6wNlYGjCJaApAWdj6x9nY+seQ==",
-    "IsMultiLegShipping": "false",
-    "MonetaryDetails": {
-        "Payments": {
-            "Payment": {
-                "FeeOrCreditAmount": {"_currencyID": "GBP", "value": "0.0"},
-                "Payee": {"_type": "eBayUser", "value": "flippify"},
-                "Payer": {"_type": "eBayUser", "value": "amin9200"},
-                "PaymentAmount": {"_currencyID": "GBP", "value": "69.99"},
-                "PaymentStatus": "Succeeded",
-                "PaymentTime": "2025-02-02T14:00:29.543Z",
-                "ReferenceID": {
-                    "_type": "ExternalTransactionID",
-                    "value": "2354062418501",
-                },
-            }
-        }
-    },
-    "OrderID": "09-12659-36141",
-    "OrderStatus": "Completed",
-    "PaidTime": "2025-02-02T14:00:29.543Z",
-    "PaymentHoldStatus": "None",
-    "ShippedTime": "2025-02-05T13:30:41.000Z",
-    "ShippingAddress": {
-        "AddressID": "2266837630020",
-        "AddressOwner": "eBay",
-        "CityName": "Garmouth",
-        "Country": "GB",
-        "CountryName": "United Kingdom",
-        "Name": "Andy Minton",
-        "Phone": "07920537723",
-        "PostalCode": "IV32 7LG",
-        "StateOrProvince": "Moray",
-        "Street1": "Calidean At BURNIESTRYPE",
-        "Street2": "Muir Of Lochs ebayjfxyx6r",
-    },
-    "ShippingDetails": {
-        "SalesTax": {
-            "SalesTaxAmount": {"_currencyID": "GBP", "value": "0.0"},
-            "SalesTaxPercent": "0.0",
-            "ShippingIncludedInTax": "false",
-        },
-        "SellingManagerSalesRecordNumber": "146",
-        "ShippingServiceOptions": {
-            "ExpeditedService": "false",
-            "ShippingService": "UK_YodelStoreToDoor",
-            "ShippingServicePriority": "1",
-            "ShippingTimeMax": "4",
-            "ShippingTimeMin": "2",
-        },
-    },
-    "ShippingServiceSelected": {
-        "ShippingPackageInfo": {"ActualDeliveryTime": "2025-02-11T10:31:31.000Z"},
-        "ShippingService": "UK_YodelStoreToDoor",
-        "ShippingServiceCost": {"_currencyID": "GBP", "value": "0.0"},
-    },
-    "Subtotal": {"_currencyID": "GBP", "value": "69.99"},
-    "Total": {"_currencyID": "GBP", "value": "69.99"},
-    "TransactionArray": {
-        "Transaction": [
-            {
-                "ActualHandlingCost": {"_currencyID": "GBP", "value": "0.0"},
-                "ActualShippingCost": {"_currencyID": "GBP", "value": "0.0"},
-                "Buyer": {
-                    "Email": "Invalid Request",
-                    "UserFirstName": None,
-                    "UserLastName": None,
-                },
-                "CreatedDate": "2025-02-02T14:00:30.000Z",
-                "InventoryReservationID": "1595132569025",
-                "Item": {
-                    "ItemID": "387845018425",
-                    "Site": "UK",
-                    "Title": "Pokemon TCG Scarlet "
-                    "And Violet Prismatic "
-                    "Evolution Elite "
-                    "Trainer Box / In "
-                    "Hand ✅",
-                },
-                "OrderLineItemID": "387845018425-1595132569025",
-                "Platform": "eBay",
-                "QuantityPurchased": "1",
-                "ShippedTime": "2025-02-05T13:30:41.000Z",
-                "ShippingDetails": {
-                    "SalesTax": {"SalesTaxPercent": "0.0"},
-                    "SellingManagerSalesRecordNumber": "146",
-                    "ShipmentTrackingDetails": {
-                        "ShipmentTrackingNumber": "87RKJ9287400A085",
-                        "ShippingCarrierUsed": "Yodel",
-                    },
-                },
-                "Status": {"PaymentHoldStatus": "None"},
-                "Taxes": {
-                    "TaxDetails": {
-                        "Imposition": "SalesTax",
-                        "TaxAmount": {"_currencyID": "GBP", "value": "0.0"},
-                        "TaxDescription": "SalesTax",
-                        "TaxOnHandlingAmount": {"_currencyID": "GBP", "value": "0.0"},
-                        "TaxOnShippingAmount": {"_currencyID": "GBP", "value": "0.0"},
-                        "TaxOnSubtotalAmount": {"_currencyID": "GBP", "value": "0.0"},
-                    },
-                    "TotalTaxAmount": {"_currencyID": "GBP", "value": "0.0"},
-                },
-                "TransactionID": "1595132569025",
-                "TransactionPrice": {"_currencyID": "GBP", "value": "69.99"},
-                "TransactionSiteID": "UK",
-                "eBayPlusTransaction": "false",
-            }
-        ]
-    },
-}
