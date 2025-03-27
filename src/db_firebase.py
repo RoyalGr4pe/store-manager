@@ -4,6 +4,7 @@ from src.models import EbayTokenData, StoreType, INumOrders
 
 # External Imports
 from google.cloud.firestore_v1.async_client import AsyncClient
+from google.cloud.firestore_v1.collection import CollectionReference
 from google.cloud.firestore_v1 import AsyncDocumentReference
 from google.oauth2 import service_account
 from datetime import datetime, timezone, timedelta
@@ -146,6 +147,7 @@ class FirebaseDB:
         user_ref: AsyncDocumentReference,
         numOrders: INumOrders,
         new_orders: int,
+        new_older_orders: int,
         store_type: StoreType,
     ):
         """Set the current number of orders for a user, including the totals."""
@@ -180,7 +182,9 @@ class FirebaseDB:
                         "resetDate": next_month_date,
                         "automatic": automatic_count,
                         "manual": manual_count,
-                        "totalAutomatic": numOrders.totalAutomatic + new_orders,
+                        "totalAutomatic": numOrders.totalAutomatic
+                        + new_orders
+                        + new_older_orders,
                         "totalManual": numOrders.totalManual,
                     }
                 }
@@ -224,7 +228,9 @@ class FirebaseDB:
         Add listings as individual documents in the inventory sub-collection.
         """
         db: AsyncClient = await self.get_db_client()
-        inventory_ref = db.collection("inventory").document(uid).collection("ebay")
+        inventory_ref: CollectionReference = (
+            db.collection("inventory").document(uid).collection("ebay")
+        )
 
         try:
             # Iterate through the listings and add them as individual documents

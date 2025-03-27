@@ -149,14 +149,22 @@ async def update_ebay_inventory(
         if not ebay_listings:
             return {"content": []}
 
-        await db.add_listings(user.id, ebay_listings)
+        # Calculate how many listings can be added without exceeding the limit
+        available_slots = user_limits["automatic"] - ebay.numListings.automatic
+        if available_slots <= 0:
+            return {"content": []}
+
+        # Trim listings to fit within the remaining limit
+        listings_to_add = ebay_listings[:available_slots]
+
+        await db.add_listings(user.id, listings_to_add)
         await db.set_last_fetched_date(
             user_ref, "inventory", format_date_to_iso(current_time), "ebay"
         )
         await db.set_current_no_listings(
             user_ref,
             ebay.numListings.automatic,
-            len(ebay_listings),
+            len(listings_to_add),
             ebay.numListings.manual,
             "ebay",
         )
@@ -310,19 +318,28 @@ async def update_ebay_orders(
             user_limits["automatic"],
             time_from,
         )
-        ebay_orders = ebay_orders_dict.get("content")
+        ebay_orders: list = ebay_orders_dict.get("content")
 
         if not ebay_orders:
             return {"success": True}
 
-        await db.add_orders(user.id, ebay_orders)
+        # Calculate how many orders can be added without exceeding the limit
+        available_slots = user_limits["automatic"] - ebay.numOrders.automatic
+        if available_slots <= 0:
+            return {"content": []}
+
+        older_orders, current_month_orders = split_orders_by_date(ebay_orders)
+
+        orders_to_add = older_orders + current_month_orders[:available_slots]
+
+        await db.add_orders(user.id, orders_to_add)
         await db.set_last_fetched_date(
             user_ref, "orders", format_date_to_iso(current_time), "ebay"
         )
         await db.set_current_no_orders(
             user_ref,
             ebay.numOrders,
-            len(ebay_orders),
+            len(orders_to_add),
             "ebay",
         )
 
@@ -583,6 +600,30 @@ def calculate_shipping_cost(order):
 
     finally:
         return shipping_fees
+
+
+def split_orders_by_date(ebay_orders: list[dict]):
+    """
+    This function splits the ebay orders by paid time. There are two splits, orders which are
+    older then the start of the current month and orders which are younger then the current month
+    """
+
+    current_month = datetime.now().month
+    current_year = datetime.now().year
+
+    older_orders = []
+    current_month_orders = []
+
+    for order in ebay_orders:
+        paid_time = order.get("PaidTime")
+        if paid_time:
+            paid_date = datetime.fromisoformat(paid_time)
+            if paid_date.month == current_month and paid_date.year == current_year:
+                current_month_orders.append(order)
+            else:
+                older_orders.append(order)
+
+    return older_orders, current_month_orders
 
 
 {
