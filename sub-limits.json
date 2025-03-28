@@ -5,7 +5,7 @@
             "manual": 1000000
         },
         "free": {
-            "automatic": 5,
+            "automatic": 20,
             "manual": 20
         },
         "standard": {
@@ -23,7 +23,7 @@
             "manual": 1000000
         },
         "free": {
-            "automatic": 5,
+            "automatic": 20,
             "manual": 20
         },
         "standard": {

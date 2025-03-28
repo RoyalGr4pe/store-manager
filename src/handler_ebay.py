@@ -523,11 +523,18 @@ async def enrich_order_items(
             # Add image and dateListed from listing data if available
             if listing_data:
                 enriched_item_data["image"] = listing_data.get("image")
+                enriched_item_data["customTag"] = listing_data.get("customTag")
                 enriched_item_data["listingDate"] = listing_data.get("dateListed")
                 enriched_item_data["purchase"]["date"] = listing_data.get("dateListed")
                 enriched_item_data["purchase"]["quantity"] = listing_data.get(
                     "initialQuantity"
                 )
+                enriched_item_data["purchase"]["price"] = listing_data.get(
+                    "purchase", {}
+                ).get("price")
+                enriched_item_data["purchase"]["platform"] = listing_data.get(
+                    "purchase", {}
+                ).get("platform")
 
             enriched_items_list.append(enriched_item_data)
 
