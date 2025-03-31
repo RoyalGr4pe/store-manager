@@ -1,5 +1,6 @@
 # Local Imports
-from src.utils import get_next_month_reset_date, format_date_to_iso
+from src.utils import get_next_month_reset_date, format_date_to_iso, fetch_user_member_sub
+from src.constants import history_limits
 from src.db_firebase import FirebaseDB
 from src.models import (
     EbayTokenData,
@@ -49,6 +50,9 @@ async def check_and_refresh_ebay_token(
         refresh_token = ebay_account.ebayRefreshToken
         current_timestamp = int(datetime.now(timezone.utc).timestamp())
 
+        if len(str(token_expiry)) > 10:  # Check if it's in milliseconds
+            token_expiry = int(token_expiry) // 1000  # Convert ms to seconds
+        
         if token_expiry > current_timestamp:
             return {"success": True}
 
@@ -377,14 +381,15 @@ async def fetch_ebay_orders(
     )
 
     if first_lookup:
-        limit = 1000
+        user_sub = fetch_user_member_sub(user)
+        limit = history_limits.get(user_sub.name, "Free - member")
 
     # Set up parameters for the API call
     params = {
         "OrderStatus": "All",
         "CreateTimeFrom": time_from,
         "Pagination": {
-            "EntriesPerPage": min(10, limit),
+            "EntriesPerPage": max(10, limit),
             "PageNumber": 1,
         },
     }
