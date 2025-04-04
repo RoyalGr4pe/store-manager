@@ -160,17 +160,21 @@ async def update_inventory(request: Request):
         store = user.store
 
         if (not store.ebay):
+            reset_date = get_next_month_reset_date()
             store.ebay = IStore(
                 numListings=INumListings(automatic=0, manual=0),
-                numOrders=INumOrders(resetDate=get_next_month_reset_date(), automatic=0, manual=0, totalAutomatic=0, totalManual=0),
+                numOrders=INumOrders(
+                    resetDate=format_date_to_iso(reset_date),
+                    automatic=0,
+                    manual=0,
+                    totalAutomatic=0,
+                    totalManual=0,
+                ),
             )
 
-        ebay = store.ebay
-
-        if (not ebay.numListings):
-            ebay.numListings = INumListings(automatic=0, manual=0)
-
-        ebay_update = await update_ebay_inventory(ebay, db, user, user_ref, user_limits)
+        ebay_update = await update_ebay_inventory(
+            store.ebay, db, user, user_ref, user_limits
+        )
         if ebay_update.get("error"):
             errors.append(ebay_update.get("error"))
 
