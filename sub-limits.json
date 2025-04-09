@@ -5,16 +5,16 @@
             "manual": 1000000
         },
         "free": {
-            "automatic": 20,
-            "manual": 20
+            "automatic": 12,
+            "manual": 12
         },
         "standard": {
-            "automatic": 100,
-            "manual": 100
+            "automatic": 48,
+            "manual": 48
         },
         "pro": {
-            "automatic": 500,
-            "manual": 500
+            "automatic": 96,
+            "manual": 96
         }
     },
     "orders": {
@@ -23,16 +23,16 @@
             "manual": 1000000
         },
         "free": {
-            "automatic": 20,
-            "manual": 20
+            "automatic": 12,
+            "manual": 12
         },
         "standard": {
-            "automatic": 100,
-            "manual": 100
+            "automatic": 48,
+            "manual": 48
         },
         "pro": {
-            "automatic": 500,
-            "manual": 500
+            "automatic": 96,
+            "manual": 96
         }
     }
 }
