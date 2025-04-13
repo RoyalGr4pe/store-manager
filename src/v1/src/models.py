@@ -31,51 +31,85 @@ class RefreshEbayTokenData(BaseModel):
     error: Optional[str]
 
 
+class PurchaseInfo(BaseModel):
+    date: Optional[str]
+    platform: Optional[str]
+    price: Optional[float]
+
+
 class IEbayInventoryItem(BaseModel):
-    initialQuantity: int
-    itemId: str
-    itemName: str
-    price: float
-    quantity: int
+    currency: str
+    customTag: Optional[str] = None
     dateListed: str
     image: List[str]
+    initialQuantity: int
+    itemId: str
+    lastModified: str
+    name: str
+    price: float
+    purchase: Optional[PurchaseInfo] = None
+    quantity: int
     recordType: RecordType
 
 
 class IShipping(BaseModel):
     fees: float
-    paymentToShipped: int
-    service: str
-    timeDays: int
-    trackingNumber: str
+    paymentToShipped: Optional[int] = None
+    service: Optional[str] = None
+    timeDays: Optional[int] = None
+    trackingNumber: Optional[str] = None
 
 
 class IPurchase(BaseModel):
+    currency: str
+    date: str
+    platform: Optional[str]
+    price: Optional[float]
+    quantity: Optional[int]
+
+
+class ISale(BaseModel):
+    buyerUsername: Optional[str] = None
+    currency: str
     date: str
     platform: str
     price: float
     quantity: int
 
-class ISale(BaseModel):
-    buyerUsername: str
-    date: str
-    platform: str
-    price: float
-    quantity: int
+
+class IHistory(BaseModel):
+    description: str
+    timestamp: str
+    title: str
+
+
+class IRefund(BaseModel):
+    amaount: float
+    currency: str
+    referencedId: str
+    refundedAt: str
+    refundedTo: str
+    status: str
+    type: str
+
 
 class IEbayOrder(BaseModel):
     additionalFees: float
-    customTag: str
+    customTag: Optional[str]
+    history: List[IHistory]
     image: List[str]
-    itemName: str
-    legacyItemId: str
+    itemId: Optional[str] = None
+    lastModified: str
     listingDate: str
+    name: str
     orderId: str
     purchase: IPurchase
     recordType: RecordType
+    refund: Optional[IRefund]
     sale: ISale
     shipping: IShipping
     status: OrderStatus
+    transactionId: str
 
 
 # --------------------------------------------------- #
@@ -131,7 +165,6 @@ class IReferral(BaseModel):
 
 
 class IPreferences(BaseModel):
-    preferredEmail: str
     locale: str
     currency: CurrencyType
 
