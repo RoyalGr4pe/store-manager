@@ -1,7 +1,7 @@
 title="Flippify Store API"
 description="API for fetching and updating eBay listings and orders"
 version = "1.0.1"
-status = "under maintenance"
+status = "active"
 
 api_status = {
     "name": title,
