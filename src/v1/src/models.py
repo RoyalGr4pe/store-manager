@@ -6,7 +6,15 @@ RecordType = Literal["automatic", "manual"]
 CurrencyType = Literal["USD", "GBP", "EUR", "AUD", "CAD"]
 EmailVerification = Literal["unverified", "verifying", "verified"]
 StoreType = Literal["ebay", "shopify", "amazon"]
-OrderStatus = Literal["Active", "Completed", "Cencelled", "Inactive", "Shipped", "InProcess", "Invalid"]
+OrderStatus = Literal[
+    "Active",
+    "Cancelled",
+    "CancelPending",
+    "Completed",
+    "CustomCode"
+    "Inactive",
+    "InProcess",
+]
 
 
 class EbayTokenData(BaseModel):

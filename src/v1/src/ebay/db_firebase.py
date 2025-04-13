@@ -1,11 +1,11 @@
 # Local Imports
-from src.utils import get_next_month_reset_date, format_date_to_iso
-from src.models import EbayTokenData, StoreType, INumOrders
+from ..utils import get_next_month_reset_date, format_date_to_iso
+from ..models import EbayTokenData, StoreType, INumOrders, INumListings, IUser
 
 # External Imports
 from google.cloud.firestore_v1.async_client import AsyncClient
 from google.cloud.firestore_v1.collection import CollectionReference
-from google.cloud.firestore_v1 import AsyncDocumentReference
+from google.cloud.firestore_v1 import AsyncDocumentReference, FieldFilter
 from google.oauth2 import service_account
 from datetime import datetime, timezone, timedelta
 from dotenv import load_dotenv
@@ -13,6 +13,16 @@ from dotenv import load_dotenv
 import os
 
 load_dotenv()
+
+
+# Connect to Firebase
+db = None
+
+def get_db():
+    global db
+    if not db:
+        db = FirebaseDB()
+    return db
 
 
 def handle_firestore_errors(func):
@@ -140,6 +150,51 @@ class FirebaseDB:
                 }
             }
         )
+
+    @handle_firestore_errors
+    async def check_and_reset_automatic_date(
+        self, user_ref: AsyncDocumentReference, numOrders: INumOrders, user_limits: dict
+    ):
+        try:            
+            # Ensure resetDate exists; otherwise, set an initial resetDate
+            if "resetDate" not in numOrders or not numOrders["resetDate"]:
+                new_reset_date = format_date_to_iso(get_next_month_reset_date())
+            else:
+                # Get the reset date from the document (remove any trailing "Z" if present)
+                reset_date_str = numOrders["resetDate"]
+                reset_date = datetime.fromisoformat(reset_date_str.replace("Z", "")).date()
+                current_date = datetime.now(timezone.utc).date()
+
+                if current_date >= reset_date:
+                    # Time to reset the counts
+                    new_reset_date = format_date_to_iso(get_next_month_reset_date())
+                else:
+                    if numOrders.automatic >= user_limits["automatic"]:
+                        return {"success": False, "message": "You have hit your limit for automatically fetching orders"}
+                    # No reset necessary and user is below limit
+                    return {
+                        "success": True,
+                        "message": "Reset not required",
+                        "available": user_limits["automatic"] - numOrders.automatic,
+                    }
+
+            # Create an updated orders structure with counts reset to zero.
+            updated_numOrders = numOrders.model_copy()
+            updated_numOrders.automatic = 0
+            updated_numOrders.manual = 0
+            updated_numOrders.resetDate = new_reset_date
+
+            # Update the document. Adjust field path if your structure is different.
+            await user_ref.update({"store.ebay.numOrders": updated_numOrders.model_dump()})
+            return {
+                "success": True,
+                "message": "Reset date updated and counts cleared",
+                "available": user_limits["automatic"],
+            }
+
+        except Exception as error:
+            print("Error in check_and_reset_automatic_date:", error)
+            return {"success": False, "error": str(error)}
 
     @handle_firestore_errors
     async def set_current_no_orders(
@@ -276,6 +331,33 @@ class FirebaseDB:
             return {"success": False, "message": str(error)}
 
     @handle_firestore_errors
+    async def get_order(self, uid: str, transaction_id: str):
+        """
+        Retrieve a specific order for a user from the orders sub-collection.
+        """
+        try:
+            db: AsyncClient = await self.get_db_client()
+            # Reference to the specific order document
+            order_ref = (
+                db.collection("orders")
+                .document(uid)
+                .collection("ebay")
+                .document(transaction_id)
+            )
+
+            order_snapshot = await order_ref.get()
+
+            # Check if the order exists
+            if not order_snapshot.exists:
+                return {"order": None, "error": "Order not found"}
+
+            # Return the order data
+            return {"order": order_snapshot.to_dict(), "error": None}
+
+        except Exception as error:
+            return {"order": None, "error": str(error)}
+
+    @handle_firestore_errors
     async def add_orders(self, uid: str, orders: list):
         """
         Add orders as individual documents in the orders sub-collection.
@@ -288,9 +370,9 @@ class FirebaseDB:
         try:
             # Iterate through the orders and add them as individual documents
             for order in orders:
-                order_id = order.get("orderId")
+                transaction_id = order.get("transactionId")
 
-                if order_id:
+                if transaction_id:
                     # Ensure the "image" field is always a list
                     if isinstance(order.get("image"), str):
                         order["image"] = [order["image"]]
@@ -298,7 +380,7 @@ class FirebaseDB:
                         order["image"] = []
 
                     # Add or update the order in the sub-collection
-                    await orders_ref.document(order_id).set(order)
+                    await orders_ref.document(transaction_id).set(order)
 
             return {"success": True, "message": "Orders added successfully"}
 
@@ -306,7 +388,7 @@ class FirebaseDB:
             return {"success": False, "message": str(error)}
 
     @handle_firestore_errors
-    async def remove_order(self, uid: str, order_id: str):
+    async def remove_order(self, uid: str, transaction_id: str):
         """
         Remove a specific order from the orders sub-collection.
         """
@@ -317,7 +399,7 @@ class FirebaseDB:
                 db.collection("orders")
                 .document(uid)
                 .collection("ebay")
-                .document(order_id)
+                .document(transaction_id)
             )
 
             order_snapshot = await order_ref.get()
@@ -334,39 +416,42 @@ class FirebaseDB:
             return {"success": False, "message": str(error)}
 
     @handle_firestore_errors
-    async def decrease_listing_quantity(self, uid: str, listing_id: str, quantity: int):
+    async def get_listings_by_ids(self, uid: str, item_ids: list[str]) -> dict:
         """
-        Decrease the quantity of a specific listing by 1.
+        Retrieve multiple listings for a user from the inventory sub-collection
+        using an 'in' query on the 'itemId' field.
+
+        Note: Firestore's 'in' query supports a maximum of 10 values. If item_ids exceeds
+        this, the query must be run in batches.
+
+        Args:
+            uid (str): The user ID.
+            item_ids (list[str]): A list of item IDs for which to fetch listings.
+
+        Returns:
+            dict: A mapping of itemId to its listing data (document data).
+                For example: { "387218355644": { ...listing data... }, ... }
         """
         try:
-            # Reference to the specific listing document
-            listing_ref: AsyncDocumentReference = (
-                self.db.collection("inventory")
-                .document(uid)
-                .collection("ebay")
-                .document(listing_id)
-            )
+            db: AsyncClient = await self.get_db_client()
+            listings_ref = db.collection("inventory").document(uid).collection("ebay")
 
-            listing_snapshot = await listing_ref.get()
+            listings_map = {}
 
-            # Check if the listing exists
-            if not listing_snapshot.exists:
-                return {"success": False, "message": "Listing not found"}
+            # Batch the item_ids into chunks of 10
+            batch_size = 10
+            for i in range(0, len(item_ids), batch_size):
+                batch_item_ids = item_ids[i : i + batch_size]
+                query = listings_ref.where(filter=FieldFilter("itemId", "in", batch_item_ids))
+                docs = await query.get()
+                for doc in docs:
+                    data = doc.to_dict()
+                    item_id = data.get("itemId")
+                    if item_id:
+                        listings_map[item_id] = data
 
-            # Get the current quantity and decrease by 1
-            current_quantity = listing_snapshot.get("quantity", 0)
-
-            if (current_quantity - quantity) == 0:
-                # Remove the listing if the quantity reaches 0
-                await listing_ref.delete()
-                return {"success": True, "message": "Listing removed successfully"}
-
-            new_quantity = max(current_quantity - quantity, 0)
-
-            # Update the quantity in the listing document
-            await listing_ref.update({"quantity": new_quantity})
-
-            return {"success": True, "message": "Listing quantity decreased"}
+            return listings_map
 
         except Exception as error:
-            return {"success": False, "message": str(error)}
+            print("Error in get_listings_by_ids:", error)
+            raise error
