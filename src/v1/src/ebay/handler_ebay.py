@@ -539,6 +539,7 @@ async def handle_new_order(
             "orderId": order["OrderID"],
             "purchase": listing_data["purchase"],
             "recordType": "automatic",
+            "listingDate": listing_data["dateListed"],
             "sale": {
                 "currency": transaction["TransactionPrice"].get("_currencyID"),
                 "date": order["CreatedTime"],
