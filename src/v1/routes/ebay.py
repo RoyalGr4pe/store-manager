@@ -5,7 +5,7 @@ from ..src.utils import (
     get_next_month_reset_date,
     format_date_to_iso,
 )
-from src.config import api_status
+from src.config import config, status_config
 from ..src.models import Store, IStore, INumListings, INumOrders
 from ..src.ebay.tokens import fetch_user_and_update_tokens
 from ..src.ebay.db_firebase import get_db
@@ -31,14 +31,15 @@ limiter = Limiter(key_func=get_remote_address)
 @router.get("/")
 @limiter.limit("1/second")
 async def root(request: Request):
-    return api_status
+    return config
 
 
 # Update inventory endpoint
 @router.post("/update-inventory")
 @limiter.limit("3/second")
 async def update_inventory(request: Request):
-    # return api_status
+    if (status_config["api"]["ebay"]) != "active":
+        return config
 
     try:
         user_info = await fetch_user_and_update_tokens(request)
@@ -102,7 +103,8 @@ async def update_inventory(request: Request):
 @router.post("/update-orders")
 @limiter.limit("3/second")
 async def update_orders(request: Request):
-    # return api_status
+    if (status_config["api"]["ebay"]) != "active":
+        return config
 
     try:
         user_info = await fetch_user_and_update_tokens(request)

@@ -1,6 +1,6 @@
 # Local Imports
 from src.utils import ratelimit_error
-from src.config import title, description, version, api_status
+from src.config import title, description, version, config
 from src.v1.routes import ebay as ebay_v1_routes
 
 # External Imports
@@ -44,10 +44,16 @@ app.include_router(ebay_v1_routes.router, prefix="/v1", tags=["eBay v1"])
 @app.get("/")
 @limiter.limit("1/second")
 async def root(request: Request):
-    return api_status
+    return config
+
+
+@app.get("/status")
+@limiter.limit("1/second")
+async def status(request: Request):
+    return config["status"]
 
 
 # Run app if executed directly
-#if __name__ == "__main__":
+if __name__ == "__main__":
     # When running locally
-    #uvicorn.run("app:app", host="0.0.0.0", port=8000, reload=True)
+    uvicorn.run("app:app", host="0.0.0.0", port=8000, reload=True)

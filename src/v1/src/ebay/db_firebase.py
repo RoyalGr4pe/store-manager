@@ -1,6 +1,6 @@
 # Local Imports
 from ..utils import get_next_month_reset_date, format_date_to_iso
-from ..models import EbayTokenData, StoreType, INumOrders, INumListings, IUser
+from ..models import EbayTokenData, StoreType, INumOrders
 
 # External Imports
 from google.cloud.firestore_v1.async_client import AsyncClient
