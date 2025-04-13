@@ -98,7 +98,7 @@ def extract_history_data(
             - The Completed status is the final state for a transaction that has successfully gone through the full sales process.
             """
             history_title = "Completed"
-            history_description = "Order completed"
+            history_description = "Order Completed"
             history_timestamp = modification_date
 
         elif order_status == "CancelPending":
