@@ -48,7 +48,7 @@ async def root(request: Request):
 
 
 @app.get("/status")
-@limiter.limit("1/second")
+@limiter.limit("3/second")
 async def status(request: Request):
     return config["status"]
 
