@@ -150,7 +150,7 @@ def extract_history_data(
     return {
         "title": history_title,
         "description": history_description,
-        "timestmap": history_timestamp,
+        "timestamp": history_timestamp,
     }
 
 
