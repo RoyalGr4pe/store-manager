@@ -67,7 +67,7 @@ async def update_ebay_inventory(
 
         if not ebay_listings:
             return {"content": []}
-
+        
         await db.add_listings(user.id, ebay_listings)
         await db.set_last_fetched_date(
             user_ref,
@@ -142,8 +142,7 @@ async def fetch_ebay_listings(
 
             for item in items[::-1]:
                 item_id = item["ItemID"]
-                db_listing_dict = db_listings_map.get(item_id)
-                db_listing = db_listing_dict.get("listing") if db_listing_dict else None
+                db_listing = db_listings_map.get(item_id)
 
                 if db_listing is None:
                     if (
@@ -186,7 +185,7 @@ async def fetch_ebay_listings(
             total_pages: str | None = pagenation_result.get("TotalNumberOfPages")
             if (total_pages) and (page >= int(total_pages)):
                 break
-            
+
             page += 1
 
     except ConnectionError as e:
