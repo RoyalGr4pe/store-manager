@@ -308,8 +308,8 @@ async def update_ebay_orders(
         await db.set_last_fetched_date(
             user_ref, "orders", format_date_to_iso(current_time), "ebay"
         )
-
         return {"success": True}
+
     except Exception as error:
         print("update_ebay_orders() error:", error)
         print(traceback.format_exc())
@@ -549,7 +549,7 @@ async def handle_new_order(
             },
             "shipping": shipping,
             "status": order_status,
-            "history": [history],
+            "history": history,
             "refund": refund,
             "lastModified": format_date_to_iso(datetime.now(timezone.utc)),
         }
@@ -591,14 +591,16 @@ async def handle_modified_order(
             if is_cancelled
             else round(total_sale_price - sale_price - new_shipping.get("fees", 0), 2)
         )
-
-        new_history = extract_history_data(
+        
+        # Combines current history and new history
+        history = extract_history_data(
             order_status,
             transaction,
             new_shipping,
             refund,
             sale_price,
             modification_date,
+            db_transaction.get("history"),
         )
 
         updated_order = db_transaction.copy()
@@ -631,10 +633,7 @@ async def handle_modified_order(
 
         # Update history and last modified date if anything changed
         if changes_found:
-            history_list = updated_order.get("history", [])
-            if not history_list or new_history != history_list[-1]:
-                history_list.append(new_history)
-            updated_order["history"] = history_list
+            updated_order["history"] = history
             updated_order["lastModified"] = format_date_to_iso(
                 datetime.now(timezone.utc)
             )
