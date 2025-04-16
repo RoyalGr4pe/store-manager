@@ -96,9 +96,10 @@ def extract_history_data(
             status = (
                 order_status if order_status in ["InProcess", "Active"] else "InProcess"
             )
+            tracking = shipping.get("trackingNumber", "N/A")
             add_event(
                 "Shipped",
-                f"Shipped to eBay buyer. Tracking {shipping.get('trackingNumber', 'N/A')}",
+                f"Shipped to eBay buyer. Tracking {'#' if tracking != 'N/A' else ''}{tracking}",
                 status,
                 shipping["shippedAt"],
             )
