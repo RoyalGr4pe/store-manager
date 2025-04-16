@@ -78,6 +78,7 @@ class ISale(BaseModel):
 
 
 class IHistory(BaseModel):
+    status: OrderStatus
     description: str
     timestamp: str
     title: str

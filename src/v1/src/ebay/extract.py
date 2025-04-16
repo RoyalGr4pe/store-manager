@@ -1,5 +1,6 @@
 # Local Imports
 from ..utils import format_date_to_iso
+from ..models import OrderStatus
 
 # External Imports
 from datetime import datetime, timezone, timedelta
@@ -44,114 +45,133 @@ def extract_history_data(
     refund: dict,
     sale_price: int,
     modification_date: str,
+    db_history: list = None,  # List of existing history dictionaries
 ):
-    # History
-    history_title = None
-    history_description = None
-    history_timestamp = None
+    # We'll accumulate new events in this list.
+    new_events = []
+
+    # Helper: check if an event with the given title (and optionally close timestamp) already exists.
+    def already_exists(title: str) -> bool:
+        if db_history:
+            for event in db_history:
+                if event.get("title") == title:
+                    return True
+        return False
+
+    # Helper: add event if not already present
+    def add_event(title: str, description: str, status: OrderStatus, timestamp: str):
+        if not already_exists(title):
+            new_events.append(
+                {
+                    "title": title,
+                    "description": description,
+                    "status": status,
+                    "timestamp": timestamp,
+                }
+            )
 
     try:
-        if order_status == "Active":
-            """
-            Definition:
-            - Indicates that the order is not yet complete. In this state, the buyer has not initiated payment.
-
-            Usage & Implications:
-            - This order status is used while the buyer has the option to combine the order into a Combined Invoice or request a cancellation.
-            - The seller can also update payment or shipping details while the order remains active.
-            """
-            history_title = "Order Placed"
-            country_code = transaction["Item"].get("Site", "eBay")
-            history_description = (
-                f"Order placed on eBay {country_code} for {sale_price}"
+        # For these statuses, we want to add the earlier events first.
+        # Always add the "Order Placed" event if it does not exist.
+        if order_status in [
+            "Active",
+            "InProcess",
+            "Completed",
+            "CancelPending",
+            "Cancelled",
+        ]:
+            status = (
+                order_status if order_status in ["InProcess", "Active"] else "Active"
             )
-            history_timestamp = transaction["CreatedDate"]
-
-        elif order_status == "InProcess":
-            """
-            Definition:
-            - Indicates that the order is currently being processed but is not yet complete.
-
-            Usage & Implications:
-            - Although the order is being worked on, it has not reached finalization, meaning that adjustments, fulfillment steps, or cancellations might still occur.
-            - This status is returned in order management responses, even though it is not supported as a filter value in GetOrders requests.
-
-            Context:
-            - It reflects a transitional state where the order is progressing toward completion but remains open to changes.
-            """
-            history_title = "Shipped"
-            history_description = (
-                f"Shipped to eBay buyer. Tracking {shipping['trackingNumber']}"
+            # Using transaction["CreatedDate"] as the order placement time.
+            add_event(
+                "Sold",
+                f"Order placed on eBay {transaction['Item'].get('Site', 'eBay')} for {sale_price}",
+                status,
+                transaction["CreatedDate"],
             )
-            history_timestamp = shipping.get("shippedTime", modification_date)
 
-        elif order_status == "Completed":
-            """
-            Definition:
-            - Denotes that the order has been fully processed and completed, including being paid for.
+        # If we have shipping data and a shipped time, add the "Shipped" event.
+        if shipping and shipping.get("shippedAt"):
+            status = (
+                order_status if order_status in ["InProcess", "Active"] else "InProcess"
+            )
+            add_event(
+                "Shipped",
+                f"Shipped to eBay buyer. Tracking {shipping.get('trackingNumber', 'N/A')}",
+                status,
+                shipping["shippedAt"],
+            )
 
-            Usage & Implications:
-            - No further changes can be made to an order once it is marked as Completed.
-            - It is used both as a filter in GetOrders requests and as a response value in various order management API calls.
-
-            Key Point:
-            - The Completed status is the final state for a transaction that has successfully gone through the full sales process.
-            """
-            history_title = "Completed"
-            history_description = "Order Completed"
-            history_timestamp = modification_date
+        # Next, depending on the order status, add the later event(s)
+        if order_status == "Completed":
+            # For completed orders, add the "Completed" event after the other events.
+            add_event("Completed", "Order Completed", order_status, modification_date)
 
         elif order_status == "CancelPending":
-            """
-            Definition:
-            - Indicates that the buyer has initiated a cancellation request for the order.
-
-            Usage & Implications:
-            - When an order is in this status, the seller must take action either to approve or reject the cancellation through My eBay or via API cancellation calls.
-            - Note that this value cannot be used as an OrderStatus filter value in the GetOrders request payload.
-
-            Important:
-            - It acts as an intermediary state while the cancellation is being processed.
-            """
-            history_title = "Cancellation Requested"
+            # Cancellation may have a refund indicator.
             if refund:
                 if refund.get("refundedTo") == "eBayPartner":
-                    history_description = "You requested to cancel this order"
+                    add_event(
+                        "Cancellation Requested",
+                        "You requested to cancel this order",
+                        order_status,
+                        refund.get("refundedAt", modification_date),
+                    )
                 elif refund.get("refundedTo") == "eBayUser":
-                    history_description = "Buyer requested cancellation"
+                    add_event(
+                        "Cancellation Requested",
+                        "Buyer requested cancellation",
+                        order_status,
+                        refund.get("refundedAt", modification_date),
+                    )
                 else:
-                    history_description = "Cancellation pending"
-                history_timestamp = refund.get("refundedAt", modification_date)
+                    add_event(
+                        "Cancellation Requested",
+                        "Cancellation pending",
+                        order_status,
+                        refund.get("refundedAt", modification_date),
+                    )
             else:
-                history_description = "Cancellation pending"
-                history_timestamp = modification_date
+                add_event(
+                    "Cancellation Requested",
+                    "Cancellation pending",
+                    order_status,
+                    modification_date,
+                )
 
         elif order_status == "Cancelled":
-            """
-            Definition:
-            - Signifies that the order has been cancelled.
-
-            Usage & Implications:
-            - After cancellation, if payment was made, the seller might be required to refund the buyer.
-            - This status is available as a filter in the GetOrders request and is returned in order management responses.
-            """
-            history_title = "Cancelled"
-            history_description = "Order was cancelled and refunded"
+            # For cancelled orders, if there is refund data, record "Refunded",
+            # otherwise simply "Cancelled".
             if refund:
-                history_title = "Refunded"
-                history_timestamp = refund.get("refundedAt", modification_date)
+                add_event(
+                    "Refunded",
+                    "Order was cancelled and refunded",
+                    order_status,
+                    refund.get("refundedAt", modification_date),
+                )
             else:
-                history_timestamp = modification_date
+                add_event(
+                    "Cancelled", "Order was cancelled", order_status, modification_date
+                )
+
+        # For "InProcess" orders (if not already covered in shipping) you might want a fallback:
+        elif order_status == "InProcess":
+            # InProcess indicates the order is being processed (often meaning it's been shipped)
+            if not (shipping and shipping.get("shippedTime")):
+                add_event(
+                    "Shipped",
+                    f"Order is in process and will be shipped soon.",
+                    order_status,
+                    modification_date,
+                )
 
     except Exception as error:
-        print("error in get_history_data", error)
+        print("Error in extract_history_data:", error)
         print(traceback.format_exc())
 
-    return {
-        "title": history_title,
-        "description": history_description,
-        "timestamp": history_timestamp,
-    }
+    new_events.sort(key=lambda e: e["timestamp"])
+    return new_events
 
 
 def extract_shipping_details(order: dict, shipping_details: dict):
