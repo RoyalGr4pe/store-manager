@@ -157,11 +157,11 @@ class FirebaseDB:
     ):
         try:            
             # Ensure resetDate exists; otherwise, set an initial resetDate
-            if "resetDate" not in numOrders or not numOrders["resetDate"]:
+            if not numOrders.resetDate:
                 new_reset_date = format_date_to_iso(get_next_month_reset_date())
             else:
                 # Get the reset date from the document (remove any trailing "Z" if present)
-                reset_date_str = numOrders["resetDate"]
+                reset_date_str = numOrders.resetDate
                 reset_date = datetime.fromisoformat(reset_date_str.replace("Z", "")).date()
                 current_date = datetime.now(timezone.utc).date()
 
@@ -230,6 +230,10 @@ class FirebaseDB:
                 manual_count = numOrders.manual
                 next_month_date = numOrders.resetDate
 
+            print("Manual Count", manual_count)
+            print()
+
+            return {"success": True}
             # Update the database with the new counts and totals
             await user_ref.update(
                 {
