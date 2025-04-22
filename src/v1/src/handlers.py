@@ -21,7 +21,7 @@ from .utils import (
 from .constants import inventory_key, sale_key
 
 # Depop
-from .depop.handler import fetch_depop_listings, fetch_depop_orders
+#from .depop.handler import fetch_depop_listings, fetch_depop_orders
 
 # eBay
 from .ebay.handler import fetch_ebay_listings, fetch_ebay_orders
@@ -37,8 +37,8 @@ import traceback
 fetch_functions = {
     "ebay-inventory": fetch_ebay_listings,
     "ebay-orders": fetch_ebay_orders,
-    "depop-inventory": fetch_depop_listings,
-    "depop-orders": fetch_depop_orders,
+#    "depop-inventory": fetch_depop_listings,
+#    "depop-orders": fetch_depop_orders,
 }
 
 
