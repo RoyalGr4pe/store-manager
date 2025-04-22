@@ -464,7 +464,7 @@ async def handle_new_order(
             "transactionId": transaction_id,
             "name": transaction["Item"]["Title"],
             "itemId": item_id,
-            "image": listing_data.get("image"),
+            "image": [listing_data.get("image")],
             "orderId": order["OrderID"],
             "purchase": listing_data["purchase"],
             "recordType": "automatic",
