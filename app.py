@@ -1,8 +1,6 @@
 # Local Imports
 from src.utils import ratelimit_error
 from src.config import title, description, version, config
-# from src.v1.routes import ebay as ebay_v1_routes
-# from src.v1.routes import depop as depop_v1_routes
 from src.v1.routes import update as update_v1_routes
 
 # External Imports
