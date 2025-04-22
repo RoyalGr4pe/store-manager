@@ -2,7 +2,6 @@ ebaysdk==2.2.0
 fake_headers==1.0.2
 firebase_admin==6.7.0
 fastapi==0.115.12
-popget==1.8.3
 pydantic==2.11.3
 python-dotenv==1.1.0
 Requests==2.32.3
