@@ -1,8 +1,11 @@
 ebaysdk==2.2.0
-fastapi==0.115.11
-firebase_admin==6.7.0
-pydantic==2.10.6
-python-dotenv==1.0.1
+fake_headers==1.0.2
+fastapi==0.115.12
+popget==1.8.3
+protobuf==6.30.2
+pydantic==2.11.3
+python-dotenv==1.1.0
 Requests==2.32.3
-uvicorn==0.34.0
 slowapi==0.1.9
+tls_client==1.0.1
+uvicorn==0.34.2
