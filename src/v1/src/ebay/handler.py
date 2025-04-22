@@ -1,37 +1,31 @@
 # Local Imports
-from ..ebay.db_firebase import FirebaseDB
-from ..ebay.constants import (
+from ..db_firebase import FirebaseDB
+from ..constants import (
     history_limits,
     max_ebay_order_limit_per_page,
     max_ebay_listing_limit_per_page,
+    inventory_key,
+    sale_key,
+    MAX_WHILE_LOOP_DEPTH,
 )
-from ..ebay.extract import (
+from .extract import (
     extract_history_data,
     extract_refund_data,
     extract_shipping_details,
     extract_time_key,
 )
-from ..models import (
-    IStore,
-    IUser,
-    INumOrders,
-    INumListings,
-    OrderStatus,
-)
+from ..models import IUser, OrderStatus, IdKey
 from ..utils import (
-    get_next_month_reset_date,
     format_date_to_iso,
     fetch_user_member_sub,
     was_order_created_in_current_month,
 )
 
 # External Imports
-from google.cloud.firestore_v1 import AsyncDocumentReference
-from ebaysdk.exception import ConnectionError
 from ebaysdk.trading import Connection as Trading
 from datetime import datetime, timezone, timedelta
+from fastapi import Request
 from dotenv import load_dotenv
-from pprint import pprint
 
 import traceback
 import os
@@ -45,54 +39,51 @@ load_dotenv()
 # --------------------------------------------------- #
 
 
-async def update_ebay_inventory(
-    ebay: IStore,
-    db: FirebaseDB,
-    user: IUser,
-    user_ref: AsyncDocumentReference,
-    user_limits: dict,
-) -> None:
+async def fetch_ebay_listings(limit: int, db: FirebaseDB, user: IUser, **kwargs):
+    # Step 1: Extract kwargs
+    id_key = kwargs.get("id_key")
+    oauth_token: str = user.connectedAccounts.ebay.ebayAccessToken
+    page = 1
+
+    # Step 2: Calculate the number of item slots the user has left
+    available_slots = limit - user.store.ebay.numListings.automatic
+
+    items = []
+    while_loop_count = 0
     try:
-        if not ebay.numListings:
-            ebay.numListings = INumListings(automatic=0, manual=0)
+        while available_slots > 0:
+            if while_loop_count >= MAX_WHILE_LOOP_DEPTH:
+                raise Exception("Max while loop depth reached")
+            while_loop_count += 1
 
-        ebay_listings_dict = await fetch_ebay_listings(
-            user.connectedAccounts.ebay.ebayAccessToken,
-            user_limits["automatic"],
-            db,
-            user,
-        )
-        ebay_listings = ebay_listings_dict.get("content")
-        new_listings = ebay_listings_dict.get("new", 0)
+            # Step 3: Query eBay for users listings
+            listings, total_pages = await fetch_listings_from_ebay(
+                oauth_token, limit, page
+            )
 
-        if not ebay_listings:
-            return {"content": []}
-        
-        await db.add_listings(user.id, ebay_listings)
-        await db.set_last_fetched_date(
-            user_ref,
-            "inventory",
-            format_date_to_iso(datetime.now(timezone.utc)),
-            "ebay",
-        )
-        await db.set_current_no_listings(
-            user_ref,
-            ebay.numListings.automatic,
-            new_listings,
-            ebay.numListings.manual,
-            "ebay",
-        )
+            if not listings or not isinstance(listings, list):
+                break
 
-        return {"success": True}
+            # Step 4: Process the listings
+            items, new_items_count, available_slots = await process_listings(
+                listings, user, db, available_slots, id_key
+            )
+
+            # Step 5: If there are no more pages or available slots, break the loop
+            if (total_pages and page >= int(total_pages)) or available_slots <= 0:
+                break
+
+            # Step 6: Move to the next page
+            page += 1
+
+        return {"content": items, "new": new_items_count}
+
     except Exception as error:
-        print("update_ebay_inventory() error:", error)
         print(traceback.format_exc())
-        return {"error": error}
+        raise error
 
 
-async def fetch_ebay_listings(
-    oauth_token: str, limit: int, db: FirebaseDB, user: IUser
-):
+async def fetch_listings_from_ebay(oauth_token: str, limit: int, page: int):
     api = Trading(
         appid=os.getenv("CLIENT_ID"),
         devid=os.getenv("DEV_ID"),
@@ -101,103 +92,96 @@ async def fetch_ebay_listings(
         config_file=None,
     )
 
-    listings = []
-    new_listing_count = 0
-    page = 1
-    error = None
-
     max_per_page = (
         max_ebay_listing_limit_per_page
         if limit > max_ebay_listing_limit_per_page
         else limit
     )
 
+    params = {
+        "ActiveList": {
+            "Include": True,
+            "Sort": "TimeLeft",
+            "Pagination": {
+                "EntriesPerPage": max_per_page,
+                "PageNumber": page,
+            },
+        }
+    }
+
+    response = api.execute("GetMyeBaySelling", params)
+    response_dict = response.dict()
+
+    items = response_dict.get("ActiveList", {}).get("ItemArray", {}).get("Item", [])
+    pagenation = response_dict.get("ActiveList", {}).get("PaginationResult", {})
+    total_pages: str | None = pagenation.get("TotalNumberOfPages")
+
+    return items, total_pages
+
+
+async def process_listings(
+    listings: list, user: IUser, db: FirebaseDB, available_slots: int, id_key: IdKey
+):
+    items, new_items_count = [], 0
+
     try:
-        while True:
-            params = {
-                "ActiveList": {
-                    "Include": True,
-                    "Sort": "TimeLeft",
-                    "Pagination": {
-                        "EntriesPerPage": max_per_page,
-                        "PageNumber": page,
-                    },
-                }
+        # Step 1: Create a list of ids from the listing
+        listing_ids = [listing["ItemID"] for listing in listings if "ItemID" in listing]
+
+        # Step 2: Query all the listings in the database which have a listing id contained in the above list
+        db_listings_map = await db.get_items_by_ids(
+            user.id, listing_ids, inventory_key, "ebay", id_key
+        )
+
+        for listing in listings:
+            # Step 3: Get the db listing from the map
+            db_listing = db_listings_map.get(listing["ItemID"])
+
+            if db_listing is None:
+                # Step 5: If the db listing doesn't exist then this is a new listing, so increment the below values
+                new_items_count += 1
+                available_slots -= 1
+
+            # Step 4: Check if the quantity is zero, if it is then ignore this listing, if it is zero and the listing exists in the database, then remove it
+            quantity = int(listing.get("QuantityAvailable", 0))
+            if quantity == 0 and db_listing is not None:
+                db.remove_item(user.id, listing["ItemID"], inventory_key, "ebay")
+            elif quantity == 0:
+                continue
+
+            # Step 6: Create the listing dictionary
+            item = {
+                "currency": listing["BuyItNowPrice"]["_currencyID"],
+                "dateListed": listing["ListingDetails"]["StartTime"],
+                "image": [listing["PictureDetails"]["GalleryURL"]],
+                "initialQuantity": int(listing["Quantity"]),
+                "itemId": listing["ItemID"],
+                "name": listing["Title"],
+                "price": round(
+                    float(listing["SellingStatus"]["CurrentPrice"]["value"]), 2
+                ),
+                "quantity": quantity,
+                "recordType": "automatic",
+                "url": listing["ListingDetails"]["ViewItemURL"],
+                "lastModified": format_date_to_iso(datetime.now(timezone.utc)),
+                "ebay": {
+                    "type": listing["ListingType"],
+                },
             }
 
-            response = api.execute("GetMyeBaySelling", params)
-            response_dict = response.dict()
+            if check_for_listing_changes(item, db_listing):
+                # Step 7: If the item is different from the db listing then append the listing data to items so it gets update/added
+                items.append(item)
 
-            items = (
-                response_dict.get("ActiveList", {}).get("ItemArray", {}).get("Item", [])
-            )
-            if not items:
-                break
+            # Step 8: If no more available slots, stop processing
+            if available_slots <= 0:
+                return items, new_items_count, available_slots
 
-            if not isinstance(items, list):
-                items = [items]
+        return items, new_items_count, available_slots
 
-            item_ids = [item["ItemID"] for item in items if "ItemID" in item]
-            db_listings_map = await db.get_listings_by_ids(user.id, item_ids)
-
-            for item in items[::-1]:
-                item_id = item["ItemID"]
-                db_listing = db_listings_map.get(item_id)
-
-                if db_listing is None:
-                    if (
-                        user.store.ebay.numListings.automatic + new_listing_count
-                        >= limit
-                    ):
-                        continue
-                    new_listing_count += 1
-
-                quantity = int(item.get("QuantityAvailable", 0))
-                if quantity == 0:
-                    continue
-
-                listing_data = {
-                    "currency": item["BuyItNowPrice"]["_currencyID"],
-                    "dateListed": item["ListingDetails"]["StartTime"],
-                    "image": [item["PictureDetails"]["GalleryURL"]],
-                    "initialQuantity": int(item["Quantity"]),
-                    "itemId": item_id,
-                    "name": item["Title"],
-                    "price": round(
-                        float(item["SellingStatus"]["CurrentPrice"]["value"]), 2
-                    ),
-                    "type": item["ListingType"],
-                    "quantity": quantity,
-                    "recordType": "automatic",
-                    "url": item["ListingDetails"]["ViewItemURL"],
-                    "lastModified": format_date_to_iso(datetime.now(timezone.utc)),
-                }
-
-                if check_for_listing_changes(listing_data, db_listing):
-                    listings.append(listing_data)
-
-            pagenation_result: dict | None = response_dict.get("ActiveList", {}).get(
-                "PaginationResult", {}
-            )
-            if not pagenation_result:
-                break
-
-            total_pages: str | None = pagenation_result.get("TotalNumberOfPages")
-            if (total_pages) and (page >= int(total_pages)):
-                break
-
-            page += 1
-
-    except ConnectionError as e:
-        error = e
+    except Exception as error:
         print(traceback.format_exc())
-
-    except Exception as e:
-        error = e
-        print("error in fetch_ebay_listings:", error)
-        print(traceback.format_exc())
-
-    return {"content": listings, "new": new_listing_count, "error": error}
+        raise error
 
 
 def check_for_listing_changes(new_listing: dict, db_listing: dict):
@@ -259,75 +243,77 @@ def fetch_listing_details_from_ebay(item_id: str, oauth_token: str):
 # --------------------------------------------------- #
 
 
-async def update_ebay_orders(
-    ebay: IStore,
-    db: FirebaseDB,
-    user: IUser,
-    user_ref: AsyncDocumentReference,
-    user_limits: dict,
-) -> None:
+async def fetch_ebay_orders(limit: int, db: FirebaseDB, user: IUser, **kwargs):
+    # Step 1: Extract kwargs
+    oauth_token: str = user.connectedAccounts.ebay.ebayAccessToken
+    new_items_count, old_items_count, page = 0, 0, 1
+
+    # Step 2: Determine the time to start fetch orders
+    time_from = user.store.ebay.lastFetchedDate.orders
+    if not time_from:
+        time_from = (datetime.now(timezone.utc) - timedelta(days=90)).isoformat()
+        user_sub = fetch_user_member_sub(user)
+        limit = history_limits.get(user_sub.name)
+
+    # Step 3: If time from is older then a certain time, then search for orders using CreateTimeFrom else use ModTimeFrom
+    key = extract_time_key(time_from)
+
+    # Step 4: Calculate the number of item slots the user has left
+    available_slots = limit - user.store.ebay.numOrders.automatic
+
+    items = []
+    while_loop_count = 0
     try:
-        if not ebay.numOrders:
-            ebay.numOrders = INumOrders(
-                resetDate=format_date_to_iso(get_next_month_reset_date()),
-                automatic=0,
-                manual=0,
-                totalAutomatic=0,
-                totalManual=0,
+        while available_slots > 0:
+            if while_loop_count >= MAX_WHILE_LOOP_DEPTH:
+                raise Exception("Max while loop depth reached")
+            while_loop_count += 1
+
+            # Step 5: Query eBay for the users orders
+            orders, has_more_orders = await fetch_orders_from_ebay(
+                oauth_token, time_from, key, limit, page
             )
 
-        current_time = datetime.now(timezone.utc)
-        time_from = (
-            None  # ebay.lastFetchedDate.orders if ebay.lastFetchedDate else None
-        )
-        first_lookup = False
-        if not time_from:
-            first_lookup = True
-            time_from = (current_time - timedelta(days=90)).isoformat()
-        else:
-            time_from = ebay.lastFetchedDate.orders
+            if not orders:
+                break
 
-        reset_auto = await db.check_and_reset_automatic_date(
-            user_ref, ebay.numOrders, user_limits
-        )
-        if reset_auto["success"] == False:
-            return {"error": reset_auto["error"]}
+            # Step 6: Process the orders
+            (items, new_items_count, old_items_count, available_slots) = (
+                await process_orders(
+                    orders,
+                    db,
+                    user.id,
+                    oauth_token,
+                    new_items_count,
+                    old_items_count,
+                    available_slots,
+                )
+            )
 
-        await fetch_ebay_orders(
-            db,
-            user.id,
-            user_ref,
-            user,
-            user.connectedAccounts.ebay.ebayAccessToken,
-            user_limits["automatic"],
-            time_from,
-            first_lookup,
-            reset_auto["available"],
-        )
+            # Step 7: If there are no more orders or slots, break the loop
+            if not has_more_orders or available_slots <= 0:
+                break
 
-        await db.set_last_fetched_date(
-            user_ref, "orders", format_date_to_iso(current_time), "ebay"
-        )
-        return {"success": True}
+            # Step 8: Move to the next page
+            page += 1
+
+        return {
+            "content": items,
+            "new": new_items_count,
+            "old": old_items_count,
+        }
 
     except Exception as error:
-        print("update_ebay_orders() error:", error)
         print(traceback.format_exc())
-        return {"error": error}
+        raise error
 
 
-async def fetch_ebay_orders(
-    db: FirebaseDB,
-    uid: str,
-    user_ref: AsyncDocumentReference,
-    user: IUser,
-    oauth_token: str,
-    limit: int,
-    time_from: str,
-    first_lookup: bool,
-    available_slots: int,
-    page: int = 1,
+async def fetch_orders_from_ebay(
+    oauth_token: str, time_from: str, key: str, limit: int, page: int
 ):
+    """
+    Fetch orders from the eBay API with pagination.
+    """
     api = Trading(
         appid=os.getenv("CLIENT_ID"),
         devid=os.getenv("DEV_ID"),
@@ -336,61 +322,8 @@ async def fetch_ebay_orders(
         config_file=None,
     )
 
-    if first_lookup:
-        user_sub = fetch_user_member_sub(user)
-        limit = history_limits.get(user_sub.name, "Free - member")
-
-    key = extract_time_key(time_from)
-
-    new_orders, old_orders = 0, 0
-
-    try:
-        while available_slots > 0:
-            # Fetch the eBay orders for the given page
-            orders, has_more_orders = await fetch_orders_from_ebay(
-                api, time_from, key, limit, page
-            )
-
-            if not orders:
-                break
-
-            # Process the orders
-            new_orders, old_orders, available_slots = await process_orders(
-                orders,
-                db,
-                uid,
-                user_ref,
-                user,
-                oauth_token,
-                new_orders,
-                old_orders,
-                available_slots,
-            )
-
-            # If there are no more orders or slots, break the loop
-            if not has_more_orders or available_slots <= 0:
-                break
-
-            # Move to the next page
-            page += 1
-
-        return {"success": True, "error": None}
-
-    except Exception as error:
-        print("error in fetch_ebay_orders", error)
-        print(traceback.format_exc())
-        return {"success": False, "error": error}
-
-
-async def fetch_orders_from_ebay(
-    api: Trading, time_from: str, key: str, limit: int, page: int
-):
-    """
-    Fetch orders from the eBay API with pagination.
-    """
-
     # Set the maximum limit per page if the users subscription limit is greater then this limit
-    use_limit = (
+    max_per_page = (
         max_ebay_order_limit_per_page
         if limit > max_ebay_order_limit_per_page
         else limit
@@ -400,7 +333,7 @@ async def fetch_orders_from_ebay(
         "OrderStatus": "All",
         key: time_from,
         "Pagination": {
-            "EntriesPerPage": use_limit,
+            "EntriesPerPage": max_per_page,
             "PageNumber": page,
         },
     }
@@ -419,69 +352,66 @@ async def fetch_orders_from_ebay(
 
 
 async def process_orders(
-    orders: list,
+    orders: list[dict],
     db: FirebaseDB,
     uid: str,
-    user_ref: AsyncDocumentReference,
-    user: IUser,
     oauth_token: str,
-    new_orders: int,
-    old_orders: int,
+    new_items_count: int,
+    old_items_count: int,
     available_slots: int,
 ):
-    """
-    Process the orders and update the database.
-    """
-    for order in orders:
-        transactions = order.get("TransactionArray", {}).get("Transaction", [])
-        if not isinstance(transactions, list):
-            transactions = [transactions]
+    items = []
+    try:
+        for order in orders:
+            transactions: list[dict] = order.get("TransactionArray", {}).get(
+                "Transaction", []
+            )
+            if not isinstance(transactions, list):
+                transactions = [transactions]
 
-        for transaction in transactions:
-            transaction_id = transaction.get("TransactionID")
-            db_order_result = await db.get_order(uid, transaction_id)
-            db_transaction = db_order_result["order"]
-
-            order_info = None
-            if db_transaction is None:
-                # Handle new order
-                order_info = await handle_new_order(
-                    db, uid, oauth_token, order, transaction
+            for transaction in transactions:
+                # Step 1: Retrieve the order from the database
+                res = await db.retrieve_item(
+                    uid, transaction.get("TransactionID"), sale_key, "ebay"
                 )
-                if not order_info:
-                    continue
+                db_transaction = res.get("item")
 
-                # Determine if the order is new or old
-                if was_order_created_in_current_month(order_info):
-                    new_orders += 1
-                    user.store.ebay.numOrders.automatic += 1
+                if db_transaction is None:
+                    # Step 2: Handle if the order doesn't exist in the database
+                    item = await handle_new_order(
+                        db, uid, oauth_token, order, transaction
+                    )
+                    if not item:
+                        continue
+
+                    # Step 3: Determine if the item is new or old
+                    if was_order_created_in_current_month(item):
+                        new_items_count += 1
+                    else:
+                        old_items_count += 1
+
+                    # Step 4: This item is new with available space so append it to items
+                    items.append(item)
+                    available_slots -= 1
+
                 else:
-                    old_orders += 1
+                    # Step 5: Handle of the order does exist in the database
+                    item = await handle_modified_order(
+                        order, transaction, db_transaction
+                    )
+                    if item:
+                        # Step 6: This item isn't new so don't increase the order count, but add the item so it gets updated
+                        items.append(item)
 
-                await db.add_orders(uid, [order_info])
-                await db.set_current_no_orders(
-                    user_ref,
-                    user.store.ebay.numOrders,
-                    new_orders,
-                    old_orders,
-                    "ebay",
-                )
+                # Step 7: If no more available slots, stop processing
+                if available_slots <= 0:
+                    return (items, new_items_count, old_items_count, available_slots)
 
-                available_slots -= 1
+        return (items, new_items_count, old_items_count, available_slots)
 
-            else:
-                # Handle modified order
-                order_info = await handle_modified_order(
-                    order, transaction, db_transaction
-                )
-                if order_info:
-                    await db.add_orders(uid, [order_info])
-
-            if available_slots <= 0:
-                # No more available slots, stop processing
-                return new_orders, old_orders, available_slots
-
-    return new_orders, old_orders, available_slots
+    except Exception as error:
+        print(traceback.format_exc())
+        raise error
 
 
 async def handle_new_order(
@@ -555,8 +485,8 @@ async def handle_new_order(
         }
 
     except Exception as error:
-        print("error in handle_new_order", error)
         print(traceback.format_exc())
+        raise error
 
 
 async def handle_modified_order(
@@ -591,7 +521,7 @@ async def handle_modified_order(
             if is_cancelled
             else round(total_sale_price - sale_price - new_shipping.get("fees", 0), 2)
         )
-        
+
         # Combines current history and new history
         history = extract_history_data(
             order_status,
@@ -641,9 +571,8 @@ async def handle_modified_order(
         return updated_order
 
     except Exception as error:
-        print("error in handle_modified_order:", error)
         print(traceback.format_exc())
-        return None
+        raise error
 
 
 async def get_listing_for_order(
@@ -663,8 +592,8 @@ async def get_listing_for_order(
     """
     data = {}
     try:
-        listing_res = await db.get_listing(uid, item_id)
-        listing_data = listing_res.get("listing")
+        listing_res = await db.retrieve_item(uid, item_id, inventory_key, "ebay")
+        listing_data = listing_res.get("item")
 
         if not listing_data:
             listing_data = fetch_listing_details_from_ebay(item_id, oauth_token)
@@ -683,6 +612,5 @@ async def get_listing_for_order(
         return data
 
     except Exception as error:
-        print("Error in get_listing_for_order:", error)
         print(traceback.format_exc())
-        return {}
+        raise error

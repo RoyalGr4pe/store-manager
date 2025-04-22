@@ -1,6 +1,6 @@
 # Local Imports
-from ..ebay.db_firebase import FirebaseDB, get_db
 from ..models import EbayTokenData, RefreshEbayTokenData, IEbay, IUser
+from ..db_firebase import FirebaseDB, get_db
 
 # External Imports
 from google.cloud.firestore_v1 import AsyncDocumentReference, DocumentSnapshot
@@ -18,111 +18,66 @@ import os
 # --------------------------------------------------- #
 
 
-# Fetch and authenticate a user based on the provided request.
-async def fetch_user_and_update_tokens(
-    request: Request,
-) -> tuple[AsyncDocumentReference, DocumentSnapshot, IUser] | HTTPException:
-    try:
-        uid = request.query_params.get("uid")
-        auth_header = request.headers.get("Authorization")
+async def check_and_refresh_ebay_token(
+    request: Request, db: FirebaseDB, user_ref: AsyncDocumentReference, user: IUser
+):
+    """
+    Refresh the eBay access token directly without needing to be called from a route.
+    This function assumes the user's Firebase data has a valid refresh token stored.
+    """
+    token = None
+    account = user.connectedAccounts.ebay
 
-        token = None
-        # Check if the header is present and starts with "Bearer"
+    try:
+        # Step 1: Check if the user provided an Autorization header
+        auth_header = request.headers.get("Authorization")
         if auth_header and auth_header.startswith("Bearer "):
-            # Extract the token after "Bearer "
             token = auth_header.split(" ")[1]
         else:
             return HTTPException(
                 status_code=401, detail="Unauthorized: No valid token provided"
             )
 
-        # Fetch the user from the database
-        db = get_db()
-        user_ref = await db.query_user_ref(uid)
-        user_snapshot = await user_ref.get()
-        user_doc = user_snapshot.to_dict()
-
-        if not user_doc:
-            return HTTPException(status_code=404, detail="User not found")
-
-        user = IUser(**user_doc)
-
-        # Check if the user has connected their eBay account
-        connected_accounts = user.connectedAccounts
-        ebay_account = connected_accounts.ebay
-        if not ebay_account:
-            return HTTPException(
-                status_code=401, detail="Unauthorized: eBay account not connected"
-            )
-
-        # Confirm the give access token is the same as the one stored in the database
-        if ebay_account.ebayAccessToken != token:
+        # Step 2: Check access token is the same as the one stored in the database
+        if account.ebayAccessToken != token:
             return HTTPException(
                 status_code=401, detail="Unauthorized: Invalid token provided"
             )
 
-        token_update_result = await check_and_refresh_ebay_token(
-            db, user_ref, ebay_account
-        )
-        if not token_update_result.get("success"):
-            return HTTPException(
-                status_code=401,
-                detail=f"Unauthorized: Token refresh failed. {token_update_result.get('error')}",
-            )
+        # Step 3: Check if the token is store as milliseconds (If true convert to seconds)
+        if len(str(account.ebayTokenExpiry)) > 10:
+            account.ebayTokenExpiry = (
+                int(account.ebayTokenExpiry) // 1000
+            )  # Convert ms to seconds
 
-        token_data: EbayTokenData | None = token_update_result.get("token_data")
-        if token_data is not None:
-            user.connectedAccounts.ebay.ebayAccessToken = token_data.access_token
-            user.connectedAccounts.ebay.ebayRefreshToken = token_data.refresh_token
+        # Step 4: Check if the users eBay token has expired
+        current_time = datetime.now(timezone.utc)
+        current_timestamp = int(current_time.timestamp())
+        if account.ebayTokenExpiry > current_timestamp:
+            return {"success": True, "user": user}
 
-            # Get the current time and calculate the expiration timestamp
-            current_time = datetime.now(timezone.utc)
-            expiry_time = current_time + timedelta(seconds=token_data.expires_in)
-            expiry_timestamp = int(
-                expiry_time.timestamp()
-
-            )  # Convert to Unix timestamp in seconds
-            user.connectedAccounts.ebay.ebayTokenExpiry = expiry_timestamp
-
-    except Exception as error:
-        print("Error in fetch_user_and_update_tokens()", error)
-        print(traceback.format_exc())
-        return HTTPException(status_code=500, detail=str)
-
-    return user_ref, user_snapshot, user
-
-
-async def check_and_refresh_ebay_token(
-    db: FirebaseDB, user_ref: AsyncDocumentReference, ebay_account: IEbay
-):
-    """
-    Refresh the eBay access token directly without needing to be called from a route.
-    This function assumes the user's Firebase data has a valid refresh token stored.
-    """
-    try:
-        # Check if the users eBay token has expired
-        token_expiry = ebay_account.ebayTokenExpiry
-        refresh_token = ebay_account.ebayRefreshToken
-        current_timestamp = int(datetime.now(timezone.utc).timestamp())
-
-        if len(str(token_expiry)) > 10:  # Check if it's in milliseconds
-            token_expiry = int(token_expiry) // 1000  # Convert ms to seconds
-
-        if token_expiry > current_timestamp:
-            return {"success": True}
-
-        # Refresh the eBay access token using the refresh token
+        # Step 5: Refresh the eBay access token using the refresh token
         token_data = await refresh_ebay_access_token(
-            refresh_token, os.getenv("CLIENT_ID"), os.getenv("CLIENT_SECRET")
+            account.ebayRefreshToken, os.getenv("CLIENT_ID"), os.getenv("CLIENT_SECRET")
         )
         if token_data.data is None:
             return {"success": False, "error": token_data.error}
 
-        # Store the new token and expiry date in the database
+        # Step 6: Store the new token and expiry date in the database
         await db.update_user_token(user_ref, token_data.data)
 
-        return {"success": True, "token_data": token_data.data}
+        # Step 7: Get the current time and calculate the expiration timestamp
+        expiry_time = current_time + timedelta(seconds=token_data.data.expires_in)
+        expiry_timestamp = int(expiry_time.timestamp())  # Convert to Unix timestamp in seconds
+
+        # Step 8: Update user token data
+        user.connectedAccounts.ebay.ebayAccessToken = token_data.data.access_token
+        user.connectedAccounts.ebay.ebayRefreshToken = token_data.data.refresh_token
+        user.connectedAccounts.ebay.ebayTokenExpiry = expiry_timestamp
+
+        return {"success": True, "user": user}
     except Exception as e:
+        print(traceback.format_exc())
         return {"success": False, "error": f"check_and_refresh_ebay_token(): {str(e)}"}
 
 

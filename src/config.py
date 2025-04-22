@@ -13,7 +13,8 @@ db = None
 status_config = {
     "status": "unknown",
     "api": {
-        "ebay": "unknown"
+        "ebay": "unknown",
+        "depop": "unknown"
     }
 }
 
@@ -66,7 +67,6 @@ def get_db():
         return db
 
     except Exception as error:
-        print("Error initializing Firestore:", error)
         print(traceback.format_exc())
 
 
@@ -76,10 +76,8 @@ def on_status_snapshot(doc_snapshot, changes, read_time):
         for doc in doc_snapshot:
             status_config = doc.to_dict()
             config["status"] = status_config
-            print(f"Received document snapshot: {doc.id} with status: {status_config}")
         callback_done.set()  # Signal that at least one snapshot has been received
     except Exception as error:
-        print("Error in on_status_snapshot:", error)
         print(traceback.format_exc())
 
 

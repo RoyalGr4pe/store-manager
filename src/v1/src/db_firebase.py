@@ -1,6 +1,6 @@
 # Local Imports
-from ..utils import get_next_month_reset_date, format_date_to_iso
-from ..models import EbayTokenData, StoreType, INumOrders
+from .utils import get_next_month_reset_date, format_date_to_iso
+from .models import EbayTokenData, StoreType, INumOrders, ItemType, IdKey
 
 # External Imports
 from google.cloud.firestore_v1.async_client import AsyncClient
@@ -10,6 +10,7 @@ from google.oauth2 import service_account
 from datetime import datetime, timezone, timedelta
 from dotenv import load_dotenv
 
+import traceback
 import os
 
 load_dotenv()
@@ -133,6 +134,17 @@ class FirebaseDB:
         await user_ref.update({f"store.{store_type}.lastFetchedDate.{data_type}": date})
 
     @handle_firestore_errors
+    async def set_offset(
+        self,
+        user_ref: AsyncDocumentReference,
+        data_type: str,
+        date: str,
+        store_type: StoreType,
+    ):
+        """Set offset for inventory or orders."""
+        await user_ref.update({f"store.{store_type}.offset.{data_type}": date})
+
+    @handle_firestore_errors
     async def set_current_no_listings(
         self,
         user_ref: AsyncDocumentReference,
@@ -152,8 +164,33 @@ class FirebaseDB:
         )
 
     @handle_firestore_errors
+    async def set_current_no_orders(
+        self,
+        user_ref: AsyncDocumentReference,
+        numOrders: INumOrders,
+        new_orders: int,
+        new_older_orders: int,
+        store_type: StoreType,
+    ):
+        """Set the current number of orders for a user, including the totals."""
+        # Update the database with the new counts and totals
+        await user_ref.update(
+            {
+                f"store.{store_type}.numOrders": {
+                    "resetDate": numOrders.resetDate,
+                    "automatic": numOrders.automatic + new_orders,
+                    "manual": numOrders.manual,
+                    "totalAutomatic": numOrders.totalAutomatic
+                    + new_orders
+                    + new_older_orders,
+                    "totalManual": numOrders.totalManual,
+                }
+            }
+        )
+
+    @handle_firestore_errors
     async def check_and_reset_automatic_date(
-        self, user_ref: AsyncDocumentReference, numOrders: INumOrders, user_limits: dict
+        self, user_ref: AsyncDocumentReference, numOrders: INumOrders, user_limits: dict, store_type: StoreType
     ):
         try:            
             # Ensure resetDate exists; otherwise, set an initial resetDate
@@ -185,7 +222,9 @@ class FirebaseDB:
             updated_numOrders.resetDate = new_reset_date
 
             # Update the document. Adjust field path if your structure is different.
-            await user_ref.update({"store.ebay.numOrders": updated_numOrders.model_dump()})
+            await user_ref.update(
+                {f"store.{store_type}.numOrders": updated_numOrders.model_dump()}
+            )
             return {
                 "success": True,
                 "message": "Reset date updated and counts cleared",
@@ -193,269 +232,136 @@ class FirebaseDB:
             }
 
         except Exception as error:
-            print("Error in check_and_reset_automatic_date:", error)
+            print(traceback.format_exc())
             return {"success": False, "error": str(error)}
 
     @handle_firestore_errors
-    async def set_current_no_orders(
-        self,
-        user_ref: AsyncDocumentReference,
-        numOrders: INumOrders,
-        new_orders: int,
-        new_older_orders: int,
-        store_type: StoreType,
+    async def retrieve_item(
+        self, uid: str, item_id: str, item_type: ItemType, store_type: StoreType
     ):
-        """Set the current number of orders for a user, including the totals."""
-        if numOrders.automatic == 0 and new_orders == -1:
-            return {"success": True}
-
-        try:
-            # Get current date in UTC and parse resetDate correctly
-            current_date = datetime.now(timezone.utc).date()
-            reset_date = datetime.fromisoformat(
-                numOrders.resetDate.replace("Z", "")
-            ).date()
-
-            # Check if current date is greater than or equal to resetDate
-            if current_date >= reset_date:
-                # Reset automatic and manual to zero
-                automatic_count = new_orders
-                manual_count = 0
-
-                # Set resetDate to the 1st day of the next month
-                next_month_date = format_date_to_iso(get_next_month_reset_date())
-            else:
-                # Increment counts as usual
-                automatic_count = numOrders.automatic + new_orders
-                manual_count = numOrders.manual
-                next_month_date = numOrders.resetDate
-
-            print("Manual Count", manual_count)
-            print()
-
-            return {"success": True}
-            # Update the database with the new counts and totals
-            await user_ref.update(
-                {
-                    f"store.{store_type}.numOrders": {
-                        "resetDate": next_month_date,
-                        "automatic": automatic_count,
-                        "manual": manual_count,
-                        "totalAutomatic": numOrders.totalAutomatic
-                        + new_orders
-                        + new_older_orders,
-                        "totalManual": numOrders.totalManual,
-                    }
-                }
-            )
-            return {"success": True}
-
-        except Exception as error:
-            print(f"Error in set_current_no_orders: {error}")
-            return {"error": str(error)}
-
-    @handle_firestore_errors
-    async def get_listing(self, uid: str, listing_id: str):
         """
-        Retrieve a specific listing for a user from the listings sub-collection.
+        Retrieve a specific item for a user from the orders sub-collection.
         """
         try:
             db: AsyncClient = await self.get_db_client()
-            # Reference to the specific listing document
-            listing_ref = (
-                db.collection("inventory")
+            # Reference to the specific item document
+            ref = (
+                db.collection(item_type)
                 .document(uid)
-                .collection("ebay")
-                .document(listing_id)
+                .collection(store_type)
+                .document(item_id)
             )
 
-            listing_snapshot = await listing_ref.get()
+            snapshot = await ref.get()
 
-            # Check if the listing exists
-            if not listing_snapshot.exists:
-                return {"listing": None, "error": "Listing not found"}
+            # Check if the item exists
+            if not snapshot.exists:
+                return {"item": None, "error": f"{item_type.capitalize()} not found"}
 
-            # Return the listing data
-            return {"listing": listing_snapshot.to_dict(), "error": None}
+            # Return the order data
+            return {"item": snapshot.to_dict(), "error": None}
 
         except Exception as error:
-            return {"listing": None, "error": str(error)}
+            return {"item": None, "error": str(error)}
 
     @handle_firestore_errors
-    async def add_listings(self, uid: str, inventory: list):
+    async def add_items(
+        self, uid: str, items: list, item_type: ItemType, store_type: StoreType, id_key
+    ):
         """
-        Add listings as individual documents in the inventory sub-collection.
+        Add items as individual documents in the <store_type> sub-collection.
         """
         db: AsyncClient = await self.get_db_client()
-        inventory_ref: CollectionReference = (
-            db.collection("inventory").document(uid).collection("ebay")
+        col_ref: AsyncDocumentReference = (
+            db.collection(item_type).document(uid).collection(store_type)
         )
 
         try:
-            # Iterate through the listings and add them as individual documents
-            for listing in inventory:
-                listing_id = listing.get("itemId")
-                if listing_id:
-                    if isinstance(listing.get("image"), str):
-                        listing["image"] = [listing["image"]]
-                    elif not listing.get("image"):
-                        listing["image"] = []
+            # Iterate through the items and add them as individual documents
+            for item in items:
+                doc_id = item.get(id_key)
 
-                    # Add or update the listing in the sub-collection
-                    await inventory_ref.document(listing_id).set(listing)
+                if doc_id:
+                    # Add or update the <store_type> in the sub-collection
+                    await col_ref.document(doc_id).set(item)
 
+            return {"success": True, "message": f"{item_type}s added successfully"}
+
+        except Exception as error:
+            print(traceback.format_exc())
+            return {"success": False, "message": str(error)}
+
+    @handle_firestore_errors
+    async def remove_item(self, uid: str, item_id: str, item_type: ItemType, store_type: StoreType):
+        """
+        Remove a specific item from the orders sub-collection.
+        """
+        try:
+            db: AsyncClient = await self.get_db_client()
+            # Reference to the specific order document
+            ref: AsyncDocumentReference = (
+                db.collection(item_type)
+                .document(uid)
+                .collection(store_type)
+                .document(item_id)
+            )
+
+            snapshot = await ref.get()
+
+            # Check if the item exists before trying to delete
+            if not snapshot.exists:
+                return {"success": False, "message": f"{item_type.capitalize()} not found"}
+
+            # Delete the item document
+            await ref.delete()
             return {
                 "success": True,
-                "message": "Listings added successfully to inventory",
+                "message": f"{item_type.capitalize()} removed successfully",
             }
 
         except Exception as error:
             return {"success": False, "message": str(error)}
 
     @handle_firestore_errors
-    async def remove_listing(self, uid: str, listing_id: str):
+    async def get_items_by_ids(
+        self,
+        uid: str,
+        item_ids: list[str],
+        item_type: ItemType,
+        store: StoreType,
+        id_key: IdKey,
+    ) -> dict:
         """
-        Remove a specific listing from the listings sub-collection.
-        """
-        try:
-            db: AsyncClient = await self.get_db_client()
-            # Reference to the specific listing document
-            listing_ref = (
-                db.collection("inventory")
-                .document(uid)
-                .collection("listings")
-                .document(listing_id)
-            )
-
-            await listing_ref.delete()
-
-            return {"success": True, "message": "Listing removed successfully"}
-
-        except Exception as error:
-            return {"success": False, "message": str(error)}
-
-    @handle_firestore_errors
-    async def get_order(self, uid: str, transaction_id: str):
-        """
-        Retrieve a specific order for a user from the orders sub-collection.
-        """
-        try:
-            db: AsyncClient = await self.get_db_client()
-            # Reference to the specific order document
-            order_ref = (
-                db.collection("orders")
-                .document(uid)
-                .collection("ebay")
-                .document(transaction_id)
-            )
-
-            order_snapshot = await order_ref.get()
-
-            # Check if the order exists
-            if not order_snapshot.exists:
-                return {"order": None, "error": "Order not found"}
-
-            # Return the order data
-            return {"order": order_snapshot.to_dict(), "error": None}
-
-        except Exception as error:
-            return {"order": None, "error": str(error)}
-
-    @handle_firestore_errors
-    async def add_orders(self, uid: str, orders: list):
-        """
-        Add orders as individual documents in the orders sub-collection.
-        """
-        db: AsyncClient = await self.get_db_client()
-        orders_ref: AsyncDocumentReference = (
-            db.collection("orders").document(uid).collection("ebay")
-        )
-
-        try:
-            # Iterate through the orders and add them as individual documents
-            for order in orders:
-                transaction_id = order.get("transactionId")
-
-                if transaction_id:
-                    # Ensure the "image" field is always a list
-                    if isinstance(order.get("image"), str):
-                        order["image"] = [order["image"]]
-                    elif not order.get("image"):
-                        order["image"] = []
-
-                    # Add or update the order in the sub-collection
-                    await orders_ref.document(transaction_id).set(order)
-
-            return {"success": True, "message": "Orders added successfully"}
-
-        except Exception as error:
-            return {"success": False, "message": str(error)}
-
-    @handle_firestore_errors
-    async def remove_order(self, uid: str, transaction_id: str):
-        """
-        Remove a specific order from the orders sub-collection.
-        """
-        try:
-            db: AsyncClient = await self.get_db_client()
-            # Reference to the specific order document
-            order_ref: AsyncDocumentReference = (
-                db.collection("orders")
-                .document(uid)
-                .collection("ebay")
-                .document(transaction_id)
-            )
-
-            order_snapshot = await order_ref.get()
-
-            # Check if the order exists before trying to delete
-            if not order_snapshot.exists:
-                return {"success": False, "message": "Order not found"}
-
-            # Delete the order document
-            await order_ref.delete()
-            return {"success": True, "message": "Order removed successfully"}
-
-        except Exception as error:
-            return {"success": False, "message": str(error)}
-
-    @handle_firestore_errors
-    async def get_listings_by_ids(self, uid: str, item_ids: list[str]) -> dict:
-        """
-        Retrieve multiple listings for a user from the inventory sub-collection
-        using an 'in' query on the 'itemId' field.
+        Retrieve multiple items for a user from the <item_type> sub-collection
+        using an 'in' query on the 'IdKey' field.
 
         Note: Firestore's 'in' query supports a maximum of 10 values. If item_ids exceeds
         this, the query must be run in batches.
 
         Args:
             uid (str): The user ID.
-            item_ids (list[str]): A list of item IDs for which to fetch listings.
-
-        Returns:
-            dict: A mapping of itemId to its listing data (document data).
-                For example: { "387218355644": { ...listing data... }, ... }
+            item_ids (list[str]): A list of item IDs for which to fetch items.
         """
         try:
             db: AsyncClient = await self.get_db_client()
-            listings_ref = db.collection("inventory").document(uid).collection("ebay")
+            ref = db.collection(item_type).document(uid).collection(store)
 
-            listings_map = {}
+            item_map = {}
 
             # Batch the item_ids into chunks of 10
             batch_size = 10
             for i in range(0, len(item_ids), batch_size):
                 batch_item_ids = item_ids[i : i + batch_size]
-                query = listings_ref.where(filter=FieldFilter("itemId", "in", batch_item_ids))
+                query = ref.where(filter=FieldFilter(id_key, "in", batch_item_ids))
                 docs = await query.get()
                 for doc in docs:
                     data = doc.to_dict()
-                    item_id = data.get("itemId")
+                    item_id = data.get(id_key)
                     if item_id:
-                        listings_map[item_id] = data
+                        item_map[item_id] = data
 
-            return listings_map
+            return item_map
 
         except Exception as error:
-            print("Error in get_listings_by_ids:", error)
+            print(traceback.format_exc())
             raise error

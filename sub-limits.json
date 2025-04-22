@@ -1,5 +1,5 @@
 {
-    "listings": {
+    "inventory": {
         "admin": {
             "automatic": 1000000,
             "manual": 1000000

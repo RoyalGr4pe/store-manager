@@ -1,7 +1,9 @@
 # Local Imports
 from src.utils import ratelimit_error
 from src.config import title, description, version, config
-from src.v1.routes import ebay as ebay_v1_routes
+# from src.v1.routes import ebay as ebay_v1_routes
+# from src.v1.routes import depop as depop_v1_routes
+from src.v1.routes import update as update_v1_routes
 
 # External Imports
 from fastapi.middleware.cors import CORSMiddleware
@@ -31,14 +33,18 @@ app.add_exception_handler(RateLimitExceeded, ratelimit_error)
 # Setup CORS
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["https://flippify.io", "https://partnerships.flippify.io", "http://localhost:3000"],
+    allow_origins=[
+        "https://flippify.io",
+        "https://partnerships.flippify.io",
+        "http://localhost:3000",
+    ],
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "DELETE"],
     allow_headers=["X-Requested-With", "Authorization", "Content-Type"],
 )
 
-# V1 eBay Routes
-app.include_router(ebay_v1_routes.router, prefix="/v1", tags=["eBay v1"])
+# V1 Routes
+app.include_router(update_v1_routes.router, prefix="/v1/update", tags=["update v1"])
 
 
 @app.get("/")
@@ -54,6 +60,6 @@ async def status(request: Request):
 
 
 # Run app if executed directly
-#if __name__ == "__main__":
+if __name__ == "__main__":
     # When running locally
-    #uvicorn.run("app:app", host="0.0.0.0", port=8000, reload=True)
+    uvicorn.run("app:app", host="0.0.0.0", port=8000, reload=True)
