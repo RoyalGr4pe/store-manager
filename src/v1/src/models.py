@@ -5,7 +5,9 @@ from pydantic import BaseModel
 RecordType = Literal["automatic", "manual"]
 CurrencyType = Literal["USD", "GBP", "EUR", "AUD", "CAD"]
 EmailVerification = Literal["unverified", "verifying", "verified"]
-StoreType = Literal["ebay", "shopify", "amazon"]
+ItemType = Literal["inventory", "orders"]
+IdKey = Literal["transactionId", "itemId"]
+StoreType = Literal["ebay", "shopify", "amazon", "depop"]
 OrderStatus = Literal[
     "Active",
     "Cancelled",
@@ -36,20 +38,34 @@ class PurchaseInfo(BaseModel):
     platform: Optional[str]
     price: Optional[float]
 
+class ICustomEbayData(BaseModel):
+    type: Optional[str] = None
 
-class IEbayInventoryItem(BaseModel):
+
+class ICustomDepopData(BaseModel):
+    discountedPrice: Optional[str] = None
+    sizes: Optional[str] = None
+    brandId: Optional[str] = None
+    categoryId: Optional[str] = None
+    variantSetId: Optional[str] = None
+    variants: Optional[str] = None
+
+
+class IInventoryItem(BaseModel):
+    name: str
+    ebay: Optional[ICustomEbayData] = None
+    price: float
+    image: List[str]
+    depop: Optional[ICustomEbayData] = None
+    itemId: str
     currency: str
+    quantity: int
+    purchase: Optional[PurchaseInfo] = None
     customTag: Optional[str] = None
     dateListed: str
-    image: List[str]
-    initialQuantity: int
-    itemId: str
-    lastModified: str
-    name: str
-    price: float
-    purchase: Optional[PurchaseInfo] = None
-    quantity: int
     recordType: RecordType
+    lastModified: str
+    initialQuantity: int
 
 
 class IShipping(BaseModel):
@@ -94,23 +110,24 @@ class IRefund(BaseModel):
     type: str
 
 
-class IEbayOrder(BaseModel):
-    additionalFees: float
-    customTag: Optional[str]
-    history: List[IHistory]
-    image: List[str]
-    itemId: Optional[str] = None
-    lastModified: str
-    listingDate: str
+class IOrder(BaseModel):
     name: str
-    orderId: str
-    purchase: IPurchase
-    recordType: RecordType
-    refund: Optional[IRefund]
-    sale: ISale
-    shipping: IShipping
+    depop: Optional[ICustomDepopData] = None
+    sale: Optional[ISale] = None
+    image: Optional[List[str]] = None
     status: OrderStatus
+    itemId: Optional[str] = None
+    refund: Optional[IRefund] = None
+    history: Optional[List[IHistory]] = None
+    orderId: Optional[str] = None
+    shipping: Optional[IShipping] = None
+    purchase: Optional[IPurchase] = None
+    customTag: Optional[str]
+    recordType: RecordType
+    listingDate: Optional[str] = None
+    lastModified: str
     transactionId: str
+    additionalFees: float
 
 
 # --------------------------------------------------- #
@@ -122,17 +139,18 @@ class ILastFetchedDate(BaseModel):
     inventory: Optional[str] = None
     orders: Optional[str] = None
 
-class ILastFetchedDates(BaseModel):
-    ebay: Optional[ILastFetchedDate] = None
+
+class IOffset(BaseModel):
+    inventory: Optional[str] = None
+    orders: Optional[str] = None
+
 
 class IAuthentication(BaseModel):
     emailVerified: EmailVerification
 
-
 class IMetaData(BaseModel):
     image: Optional[str] = None
     createdAt: str
-
 
 class IDiscord(BaseModel):
     discordId: str
@@ -145,10 +163,13 @@ class IEbay(BaseModel):
     error: Optional[str] = None
     error_description: Optional[str] = None
 
+class IDepop(BaseModel):
+    shopId: str
 
 class IConnectedAccounts(BaseModel):
     discord: Optional[IDiscord] = None
     ebay: Optional[IEbay] = None
+    depop: Optional[IDepop] = None
 
 
 class ISubscription(BaseModel):
@@ -186,10 +207,12 @@ class IStore(BaseModel):
     numListings: Optional[INumListings] = None
     numOrders: Optional[INumOrders] = None
     lastFetchedDate: Optional[ILastFetchedDate] = None
+    offset: Optional[IOffset] = None
 
 
 class Store(BaseModel):
     ebay: Optional[IStore] = None
+    depop: Optional[IStore] = None
 
 # Main IUser Model
 class IUser(BaseModel):

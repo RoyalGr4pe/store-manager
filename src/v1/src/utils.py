@@ -4,6 +4,7 @@ from datetime import datetime, timezone
 
 import json
 
+
 def fetch_user_member_sub(user: IUser) -> ISubscription | None:
     user_subscriptions_list = user.subscriptions
     if not user_subscriptions_list:

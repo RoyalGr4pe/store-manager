@@ -33,9 +33,8 @@ def extract_refund_data(
         }
 
     except Exception as error:
-        print(f"Error in get_refund_data: ", error)
         print(traceback.format_exc())
-        return {}
+        raise error
 
 
 def extract_history_data(
@@ -167,12 +166,14 @@ def extract_history_data(
                     modification_date,
                 )
 
+        new_events.sort(key=lambda e: e["timestamp"])
+        return new_events
+    
     except Exception as error:
-        print("Error in extract_history_data:", error)
         print(traceback.format_exc())
+        raise error
 
-    new_events.sort(key=lambda e: e["timestamp"])
-    return new_events
+
 
 
 def extract_shipping_details(order: dict, shipping_details: dict):
@@ -228,10 +229,8 @@ def extract_shipping_details(order: dict, shipping_details: dict):
         }
 
     except Exception as error:
-        print(f"Error in get_shipping_details: ", error)
         print(traceback.format_exc())
-        print(order)
-        return {}
+        return error
 
 
 def extract_shipping_cost(order):
@@ -260,7 +259,8 @@ def extract_shipping_cost(order):
                 )
 
     except Exception as error:
-        print("Error in calculate_shipping_cost: ", error)
+        print(traceback.format_exc())
+        raise error
 
     finally:
         return shipping_fees
