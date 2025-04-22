@@ -6,5 +6,4 @@ pydantic==2.11.3
 python-dotenv==1.1.0
 Requests==2.32.3
 slowapi==0.1.9
-tls_client==1.0.1
 uvicorn==0.34.2

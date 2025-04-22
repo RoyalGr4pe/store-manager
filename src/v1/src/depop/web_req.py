@@ -5,8 +5,8 @@ from ..constants import COOKIEJAR_PATH
 from urllib.parse import urlparse
 from fake_headers import Headers
 
-import tls_client
 import pickle
+import httpx
 import json
 import os
 
@@ -95,27 +95,24 @@ async def check_response_status(status_code, url):
         return True
 
 
-async def tls_client_request(url):
+async def httpx_request(url):
     response = None
     try:
-        cookies = load_cookies()
+        cookies_store = load_cookies()
+        domain = get_domain(url)
+        domain_cookies = cookies_store.get(domain, {})
 
-        with tls_client.Session(
-            client_identifier="chrome112", random_tls_extension_order=True
-        ) as session:
-            domain = get_domain(url)
-
-            # Update cookies for the domain in tls_client session
-            session.cookies.update(cookies.get(domain, {}))
-
-            # Make request using tls_client
-            response = await tls_client_fetch(url, session)
-
-            # Update cookies after request
-            cookies[domain] = session.cookies
-
-        # Save updated cookies to file
-        save_cookies(cookies)
+        with httpx.AsyncClient(
+            cookies=domain_cookies,
+            timeout=10.0,
+        ) as client:
+            resp = await client.get(url)
+            resp.raise_for_status()
+            # Persist any set‑cookie headers
+            cookies_store[domain] = resp.cookies.jar.get_dict()
+            # Save updated cookies to file
+            save_cookies(cookies_store)
+            return resp.json()
 
         return json.loads(response)
 
@@ -123,7 +120,7 @@ async def tls_client_request(url):
         print("Failed tls_client_request: %s", error)
 
 
-async def tls_client_fetch(url, session):
+async def httpx_fetch(url, session):
     try:
         response = session.get(url, headers=headers())
         status = response.status_code
