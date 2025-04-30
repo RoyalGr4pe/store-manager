@@ -194,15 +194,15 @@ class IPreferences(BaseModel):
 
 
 class INumListings(BaseModel):
-    automatic: int
-    manual: int
+    automatic: Optional[int] = None
+    manual: Optional[int] = None
 
 class INumOrders(BaseModel):
     resetDate: str
-    automatic: int
-    manual: int
-    totalAutomatic: int
-    totalManual: int
+    automatic: Optional[int] = None
+    manual: Optional[int] = None
+    totalAutomatic: Optional[int] = None
+    totalManual: Optional[int] = None
 
 
 class IStore(BaseModel):
