@@ -167,6 +167,7 @@ async def process_listings(
                 "ebay": {
                     "type": listing["ListingType"],
                 },
+                "storeType": "ebay"
             }
 
             if check_for_listing_changes(item, db_listing):
@@ -479,6 +480,7 @@ async def handle_new_order(
             },
             "shipping": shipping,
             "status": order_status,
+            "storeType": "ebay",
             "history": history,
             "refund": refund,
             "lastModified": format_date_to_iso(datetime.now(timezone.utc)),

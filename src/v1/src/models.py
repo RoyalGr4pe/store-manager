@@ -1,4 +1,4 @@
-from typing import Optional, List, Literal, Dict
+from typing import Optional, List, Literal
 from pydantic import BaseModel
 
 # Enum-like types
@@ -66,6 +66,7 @@ class IInventoryItem(BaseModel):
     recordType: RecordType
     lastModified: str
     initialQuantity: int
+    storeType: Optional[StoreType] = None
 
 
 class IShipping(BaseModel):
@@ -121,6 +122,7 @@ class IOrder(BaseModel):
     history: Optional[List[IHistory]] = None
     orderId: Optional[str] = None
     shipping: Optional[IShipping] = None
+    storeType: Optional[StoreType] = None
     purchase: Optional[IPurchase] = None
     customTag: Optional[str]
     recordType: RecordType
