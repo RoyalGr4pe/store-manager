@@ -19,12 +19,13 @@ from ..utils import (
     format_date_to_iso,
     fetch_user_member_sub,
     was_order_created_in_current_month,
+    fetch_user_inventory_and_orders_count,
 )
 
 # External Imports
+from google.cloud.firestore_v1 import AsyncDocumentReference
 from ebaysdk.trading import Connection as Trading
 from datetime import datetime, timezone, timedelta
-from fastapi import Request
 from dotenv import load_dotenv
 
 import traceback
@@ -39,14 +40,16 @@ load_dotenv()
 # --------------------------------------------------- #
 
 
-async def fetch_ebay_listings(limit: int, db: FirebaseDB, user: IUser, **kwargs):
+async def fetch_ebay_listings(limit: int, db: FirebaseDB, user: IUser, user_ref: AsyncDocumentReference, **kwargs):
     # Step 1: Extract kwargs
     id_key = kwargs.get("id_key")
     oauth_token: str = user.connectedAccounts.ebay.ebayAccessToken
     page = 1
 
+    user_count = await fetch_user_inventory_and_orders_count(user, user_ref, db)
+
     # Step 2: Calculate the number of item slots the user has left
-    available_slots = limit - user.store.ebay.numListings.automatic
+    available_slots = limit - user_count["automaticListings"]
 
     items = []
     while_loop_count = 0
@@ -244,13 +247,13 @@ def fetch_listing_details_from_ebay(item_id: str, oauth_token: str):
 # --------------------------------------------------- #
 
 
-async def fetch_ebay_orders(limit: int, db: FirebaseDB, user: IUser, **kwargs):
+async def fetch_ebay_orders(limit: int, db: FirebaseDB, user: IUser, user_ref: AsyncDocumentReference, **kwargs):
     # Step 1: Extract kwargs
     oauth_token: str = user.connectedAccounts.ebay.ebayAccessToken
     new_items_count, old_items_count, page = 0, 0, 1
 
     # Step 2: Determine the time to start fetch orders
-    time_from = user.store.ebay.lastFetchedDate.orders
+    time_from = user.store["ebay"].lastFetchedDate.orders
     if not time_from:
         time_from = (datetime.now(timezone.utc) - timedelta(days=90)).isoformat()
         user_sub = fetch_user_member_sub(user)
@@ -259,8 +262,10 @@ async def fetch_ebay_orders(limit: int, db: FirebaseDB, user: IUser, **kwargs):
     # Step 3: If time from is older then a certain time, then search for orders using CreateTimeFrom else use ModTimeFrom
     key = extract_time_key(time_from)
 
+    user_count = await fetch_user_inventory_and_orders_count(user, user_ref, db)
+
     # Step 4: Calculate the number of item slots the user has left
-    available_slots = limit - user.store.ebay.numOrders.automatic
+    available_slots = limit - user_count["automaticOrders"]
 
     items = []
     while_loop_count = 0

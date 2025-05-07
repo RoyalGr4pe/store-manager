@@ -4,7 +4,6 @@ from .models import EbayTokenData, StoreType, INumOrders, ItemType, IdKey
 
 # External Imports
 from google.cloud.firestore_v1.async_client import AsyncClient
-from google.cloud.firestore_v1.collection import CollectionReference
 from google.cloud.firestore_v1 import AsyncDocumentReference, FieldFilter
 from google.oauth2 import service_account
 from datetime import datetime, timezone, timedelta
@@ -174,17 +173,38 @@ class FirebaseDB:
     ):
         """Set the current number of orders for a user, including the totals."""
         # Update the database with the new counts and totals
+        current_auto = numOrders.automatic or 0
+        current_manual = numOrders.manual or 0
+        total_auto = numOrders.totalAutomatic or 0
+        total_manual = numOrders.totalManual or 0
+        reset_date = numOrders.resetDate or format_date_to_iso(get_next_month_reset_date())
+
         await user_ref.update(
             {
                 f"store.{store_type}.numOrders": {
-                    "resetDate": numOrders.resetDate,
-                    "automatic": numOrders.automatic + new_orders,
-                    "manual": numOrders.manual,
-                    "totalAutomatic": numOrders.totalAutomatic
-                    + new_orders
-                    + new_older_orders,
-                    "totalManual": numOrders.totalManual,
+                    "resetDate": reset_date,
+                    "automatic": current_auto + new_orders,
+                    "manual": current_manual,
+                    "totalAutomatic": total_auto + new_orders + new_older_orders,
+                    "totalManual": total_manual + new_older_orders,
                 }
+            }
+        )
+
+    @handle_firestore_errors
+    async def reset_current_no_orders(
+        self,
+        user_ref: AsyncDocumentReference,
+        store_type: StoreType,
+    ):
+        """Reset the current order counts and set a new resetDate."""
+        new_reset = format_date_to_iso(get_next_month_reset_date())
+        await user_ref.update(
+            {
+                # Only reset the `resetDate`, `automatic`, and `manual` fields
+                f"store.{store_type}.numOrders.resetDate": new_reset,
+                f"store.{store_type}.numOrders.automatic": 0,
+                f"store.{store_type}.numOrders.manual": 0,
             }
         )
 
