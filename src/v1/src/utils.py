@@ -1,4 +1,5 @@
 from ..src.models import IUser, ISubscription
+from google.cloud.firestore_v1 import AsyncDocumentReference
 
 from datetime import datetime, timezone
 
@@ -86,3 +87,75 @@ def was_order_created_in_current_month(order: dict):
         return True
     else:
         return False
+
+
+async def fetch_user_inventory_and_orders_count(
+    user: IUser, user_ref: AsyncDocumentReference, db
+) -> dict[str, int]:
+    """
+    Returns a dictionary with counts of automatic/manual listings and orders
+    aggregated across all stores on the given user object.
+
+    If today is after a store's numOrders.resetDate, that store's
+    order counts are treated as zero.
+    """
+    if user.store is None:
+        return {
+            "automaticListings": 0,
+            "manualListings": 0,
+            "automaticOrders": 0,
+            "manualOrders": 0,
+        }
+
+    automatic_listings = 0
+    manual_listings = 0
+    automatic_orders = 0
+    manual_orders = 0
+
+    today = datetime.now(timezone.utc).date()
+
+    # Iterate over all declared store fields dynamically
+    for store_name, store in user.store.items():
+        if store is None:
+            continue
+
+        # --- Listings ---
+        if store.numListings:
+            automatic_listings += store.numListings.automatic or 0
+            manual_listings += store.numListings.manual or 0
+
+        # --- Orders ---
+        if store.numOrders:
+            reset_str = store.numOrders.resetDate
+            # parse resetDate if present, else assume never reset
+            if reset_str:
+                # assume ISO format 'YYYY-MM-DD' or full datetime
+                reset_date = (
+                    datetime.fromisoformat(reset_str).date()
+                    if "T" in reset_str
+                    else datetime.strptime(reset_str, "%Y-%m-%d").date()
+                )
+            else:
+                await db.set_current_no_orders(
+                    user_ref, store.numOrders, 0, 0, store_name
+                )
+                reset_date = None
+
+            # if reset_date exists and today is after it, zero out this store’s counts
+            if reset_date and today > reset_date:
+                auto = 0
+                manual = 0
+                await db.reset_current_no_orders(user_ref, store_name)
+            else:
+                auto = store.numOrders.automatic or 0
+                manual = store.numOrders.manual or 0
+
+            automatic_orders += auto
+            manual_orders += manual
+
+    return {
+        "automaticListings": automatic_listings,
+        "manualListings": manual_listings,
+        "automaticOrders": automatic_orders,
+        "manualOrders": manual_orders,
+    }

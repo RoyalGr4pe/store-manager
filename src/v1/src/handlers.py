@@ -8,7 +8,6 @@ from .models import (
     ILastFetchedDate,
     IOffset,
     StoreType,
-    Store,
     ItemType,
     IdKey,
 )
@@ -17,11 +16,12 @@ from .utils import (
     get_next_month_reset_date,
     fetch_user_member_sub,
     fetch_users_limits,
+    fetch_user_inventory_and_orders_count,
 )
 from .constants import inventory_key, sale_key
 
 # Depop
-#from .depop.handler import fetch_depop_listings, fetch_depop_orders
+# from .depop.handler import fetch_depop_listings, fetch_depop_orders
 
 # eBay
 from .ebay.handler import fetch_ebay_listings, fetch_ebay_orders
@@ -37,8 +37,8 @@ import traceback
 fetch_functions = {
     "ebay-inventory": fetch_ebay_listings,
     "ebay-orders": fetch_ebay_orders,
-#    "depop-inventory": fetch_depop_listings,
-#    "depop-orders": fetch_depop_orders,
+    #    "depop-inventory": fetch_depop_listings,
+    #    "depop-orders": fetch_depop_orders,
 }
 
 
@@ -89,10 +89,9 @@ async def fetch_and_check_user(
 
         # Step 8: Check to see if the user has reached their automatic limit
         max_automatic_limit: int = limits["automatic"]
-        store = getattr(user.store, store_type, None)
-        num_orders = getattr(store, "numOrders", None)
-        user_automatic_count: int = getattr(num_orders, "automatic", 0)
-        if user_automatic_count >= max_automatic_limit:
+        user_count = await fetch_user_inventory_and_orders_count(user, user_ref, db)
+
+        if user_count["automaticOrders"] >= max_automatic_limit:
             raise HTTPException(
                 status_code=400, detail="User has reached their automatic limit"
             )
@@ -112,11 +111,15 @@ async def fetch_and_check_user(
 
 def add_and_update_store(user: IUser, store_type: StoreType) -> IUser:
     # Step 1: Ensure the user has a store container
-    if not user.store:
-        user.store = Store()
+    if user.store is None:
+        user.store = {}
+
+    # If this store_type isn't present yet, create it
+    if store_type not in user.store:
+        user.store[store_type] = IStore()
 
     # Step 2: Grab (or None) the named store slot
-    store_slot: IStore | None = getattr(user.store, store_type, None)
+    store_slot: IStore | None = user.store.get(store_type)
 
     # Helper to build a fresh IStore
     def make_istore() -> IStore:
@@ -131,19 +134,19 @@ def add_and_update_store(user: IUser, store_type: StoreType) -> IUser:
                 totalAutomatic=0,
                 totalManual=0,
             ),
-            offset=IOffset(inventory=None, orders=None)
+            offset=IOffset(inventory=None, orders=None),
         )
 
     # Step 3: If there's no store at all → create it wholesale
     if store_slot is None:
-        setattr(user.store, store_type, make_istore())
+        user.store[store_type] = make_istore()
         return user
 
     # Step 4: Check if store.<store_type> has numListings
     if not getattr(store_slot, "numListings", None):
         store_slot.numListings = INumListings(automatic=0, manual=0)
 
-    # Step 5: Check if store.<store_type> has numOrders
+    # Step 5: Check if store[store_type] has numOrders
     if not getattr(store_slot, "numOrders", None):
         reset_date = get_next_month_reset_date()
         store_slot.numOrders = INumOrders(
@@ -194,7 +197,9 @@ async def update_items(
         fetch_func = fetch_functions[f"{store_type}-{item_type}"]
 
         # Step 2: Execute
-        res: dict = await fetch_func(limits["automatic"], db, user, id_key=id_key)
+        res: dict = await fetch_func(
+            limits["automatic"], db, user, user_ref, id_key=id_key
+        )
         # Step 3: Extract
         items = res.get("content")
         new_items_count = res.get("new", 0)
@@ -255,7 +260,7 @@ async def update_db(
             await db.set_offset(user_ref, item_type, offset, store_type)
 
         # Step 4: Get the store
-        store = getattr(user.store, store_type, None)
+        store = user.store[store_type]
 
         # Step 5: Set the number of items for the given store type
         if item_type == inventory_key:

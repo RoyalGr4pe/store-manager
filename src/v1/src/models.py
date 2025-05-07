@@ -1,4 +1,4 @@
-from typing import Optional, List, Literal
+from typing import Optional, List, Literal, Dict
 from pydantic import BaseModel
 
 # Enum-like types
@@ -198,7 +198,7 @@ class INumListings(BaseModel):
     manual: Optional[int] = None
 
 class INumOrders(BaseModel):
-    resetDate: str
+    resetDate: Optional[str] = None
     automatic: Optional[int] = None
     manual: Optional[int] = None
     totalAutomatic: Optional[int] = None
@@ -212,10 +212,6 @@ class IStore(BaseModel):
     offset: Optional[IOffset] = None
 
 
-class Store(BaseModel):
-    ebay: Optional[IStore] = None
-    depop: Optional[IStore] = None
-
 # Main IUser Model
 class IUser(BaseModel):
     id: str
@@ -225,7 +221,7 @@ class IUser(BaseModel):
     stripeCustomerId: str
     subscriptions: Optional[List[ISubscription]] = None
     referral: IReferral
-    store: Optional[Store] = None
+    store: Optional[Dict[str, IStore]] = None
     preferences: IPreferences
     authentication: IAuthentication
     metaData: IMetaData
