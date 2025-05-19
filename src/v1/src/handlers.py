@@ -10,6 +10,7 @@ from .models import (
     StoreType,
     ItemType,
     IdKey,
+    StoreEntry
 )
 from .utils import (
     format_date_to_iso,
@@ -28,8 +29,8 @@ from .ebay.handler import fetch_ebay_listings, fetch_ebay_orders
 from .ebay.tokens import check_and_refresh_ebay_token
 
 # External Imports
-from google.cloud.firestore_v1 import AsyncDocumentReference, DocumentSnapshot
-from datetime import datetime, timezone, timedelta
+from google.cloud.firestore_v1 import AsyncDocumentReference
+from datetime import datetime, timezone
 from fastapi import HTTPException, Request
 
 import traceback
@@ -114,42 +115,14 @@ def add_and_update_store(user: IUser, store_type: StoreType) -> IUser:
     if user.store is None:
         user.store = {}
 
-    # If this store_type isn't present yet, create it
-    if store_type not in user.store:
-        user.store[store_type] = IStore()
+   # Step 2: Add numListings if missing
+    if not isinstance(getattr(user.store, "numListings", None), INumListings):
+        user.store.numListings = INumListings(automatic=0, manual=0)
 
-    # Step 2: Grab (or None) the named store slot
-    store_slot: IStore | None = user.store.get(store_type)
-
-    # Helper to build a fresh IStore
-    def make_istore() -> IStore:
+    # Step 3: Add numOrders if missing
+    if not isinstance(getattr(user.store, "numOrders", None), INumOrders):
         reset_date = get_next_month_reset_date()
-        return IStore(
-            lastFetchedDate=ILastFetchedDate(inventory=None, orders=None),
-            numListings=INumListings(automatic=0, manual=0),
-            numOrders=INumOrders(
-                resetDate=format_date_to_iso(reset_date),
-                automatic=0,
-                manual=0,
-                totalAutomatic=0,
-                totalManual=0,
-            ),
-            offset=IOffset(inventory=None, orders=None),
-        )
-
-    # Step 3: If there's no store at all → create it wholesale
-    if store_slot is None:
-        user.store[store_type] = make_istore()
-        return user
-
-    # Step 4: Check if store.<store_type> has numListings
-    if not getattr(store_slot, "numListings", None):
-        store_slot.numListings = INumListings(automatic=0, manual=0)
-
-    # Step 5: Check if store[store_type] has numOrders
-    if not getattr(store_slot, "numOrders", None):
-        reset_date = get_next_month_reset_date()
-        store_slot.numOrders = INumOrders(
+        user.store.numOrders = INumOrders(
             resetDate=format_date_to_iso(reset_date),
             automatic=0,
             manual=0,
@@ -157,13 +130,17 @@ def add_and_update_store(user: IUser, store_type: StoreType) -> IUser:
             totalManual=0,
         )
 
-    # Step 6: Check if store.<store_type> has lastFetchedDate
-    if not getattr(store_slot, "lastFetchedDate", None):
-        store_slot.lastFetchedDate = ILastFetchedDate(inventory=None, orders=None)
+    # Step 4: Add storeType-specific info (e.g., offset, lastFetchedDate)
+    store_meta = user.store.storeMeta.get(store_type)
+    if not store_meta:
+        store_meta = StoreEntry()
+        user.store.storeMeta[store_type] = store_meta
 
-    # Step 7: Check if store.<store_type> has offset
-    if not getattr(store_slot, "offset", None):
-        store_slot.offset = IOffset(inventory=None, orders=None)
+    # Ensure offset and lastFetchedDate exist
+    if store_meta.lastFetchedDate is None:
+        store_meta.lastFetchedDate = ILastFetchedDate(inventory=None, orders=None)
+    if store_meta.offset is None:
+        store_meta.offset = IOffset(inventory=None, orders=None)
 
     return user
 
@@ -200,6 +177,7 @@ async def update_items(
         res: dict = await fetch_func(
             limits["automatic"], db, user, user_ref, id_key=id_key
         )
+
         # Step 3: Extract
         items = res.get("content")
         new_items_count = res.get("new", 0)
@@ -259,25 +237,20 @@ async def update_db(
             # Step 3: Add offset if it is provided
             await db.set_offset(user_ref, item_type, offset, store_type)
 
-        # Step 4: Get the store
-        store = user.store[store_type]
-
-        # Step 5: Set the number of items for the given store type
+        # Step 4: Set the number of items for the given store type
         if item_type == inventory_key:
             await db.set_current_no_listings(
                 user_ref,
-                store.numListings.automatic,
+                user.store.numListings.automatic,
                 new_items_count,
-                store.numListings.manual,
-                store_type,
+                user.store.numListings.manual,
             )
         elif item_type == sale_key:
             await db.set_current_no_orders(
                 user_ref,
-                store.numOrders,
+                user.store.numOrders,
                 new_items_count,
                 old_items_count,
-                store_type,
             )
 
     except Exception as error:

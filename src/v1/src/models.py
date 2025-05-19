@@ -1,5 +1,5 @@
-from typing import Optional, List, Literal, Dict
-from pydantic import BaseModel
+from typing import Optional, List, Literal
+from pydantic import BaseModel, Field
 
 # Enum-like types
 RecordType = Literal["automatic", "manual"]
@@ -205,11 +205,15 @@ class INumOrders(BaseModel):
     totalManual: Optional[int] = None
 
 
+class StoreEntry(BaseModel):
+    lastFetchedDate: Optional[ILastFetchedDate] = None
+    offset: Optional[IOffset] = None
+
 class IStore(BaseModel):
     numListings: Optional[INumListings] = None
     numOrders: Optional[INumOrders] = None
-    lastFetchedDate: Optional[ILastFetchedDate] = None
-    offset: Optional[IOffset] = None
+
+    storeMeta: dict[str, StoreEntry] = Field(default_factory=dict)
 
 
 # Main IUser Model
@@ -221,7 +225,7 @@ class IUser(BaseModel):
     stripeCustomerId: str
     subscriptions: Optional[List[ISubscription]] = None
     referral: IReferral
-    store: Optional[Dict[str, IStore]] = None
+    store: Optional[IStore] = None
     preferences: IPreferences
     authentication: IAuthentication
     metaData: IMetaData

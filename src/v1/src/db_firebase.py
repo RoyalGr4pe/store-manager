@@ -150,12 +150,11 @@ class FirebaseDB:
         automatic_count: int,
         new_listings: int,
         manual_count: int,
-        store_type: StoreType,
     ):
         """Set the current number of inventory for a user."""
         await user_ref.update(
             {
-                f"store.{store_type}.numListings": {
+                f"store.numListings": {
                     "automatic": automatic_count + new_listings,
                     "manual": manual_count,
                 }
@@ -169,7 +168,6 @@ class FirebaseDB:
         numOrders: INumOrders,
         new_orders: int,
         new_older_orders: int,
-        store_type: StoreType,
     ):
         """Set the current number of orders for a user, including the totals."""
         # Update the database with the new counts and totals
@@ -181,12 +179,12 @@ class FirebaseDB:
 
         await user_ref.update(
             {
-                f"store.{store_type}.numOrders": {
+                f"store.numOrders": {
                     "resetDate": reset_date,
                     "automatic": current_auto + new_orders,
                     "manual": current_manual,
                     "totalAutomatic": total_auto + new_orders + new_older_orders,
-                    "totalManual": total_manual + new_older_orders,
+                    "totalManual": total_manual,
                 }
             }
         )
@@ -195,22 +193,21 @@ class FirebaseDB:
     async def reset_current_no_orders(
         self,
         user_ref: AsyncDocumentReference,
-        store_type: StoreType,
     ):
         """Reset the current order counts and set a new resetDate."""
         new_reset = format_date_to_iso(get_next_month_reset_date())
         await user_ref.update(
             {
                 # Only reset the `resetDate`, `automatic`, and `manual` fields
-                f"store.{store_type}.numOrders.resetDate": new_reset,
-                f"store.{store_type}.numOrders.automatic": 0,
-                f"store.{store_type}.numOrders.manual": 0,
+                f"store.numOrders.resetDate": new_reset,
+                f"store.numOrders.automatic": 0,
+                f"store.numOrders.manual": 0,
             }
         )
 
     @handle_firestore_errors
     async def check_and_reset_automatic_date(
-        self, user_ref: AsyncDocumentReference, numOrders: INumOrders, user_limits: dict, store_type: StoreType
+        self, user_ref: AsyncDocumentReference, numOrders: INumOrders, user_limits: dict
     ):
         try:            
             # Ensure resetDate exists; otherwise, set an initial resetDate
@@ -243,7 +240,7 @@ class FirebaseDB:
 
             # Update the document. Adjust field path if your structure is different.
             await user_ref.update(
-                {f"store.{store_type}.numOrders": updated_numOrders.model_dump()}
+                {f"store.numOrders": updated_numOrders.model_dump()}
             )
             return {
                 "success": True,

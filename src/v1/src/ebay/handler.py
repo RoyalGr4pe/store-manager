@@ -9,7 +9,6 @@ from ..constants import (
     MAX_WHILE_LOOP_DEPTH,
 )
 from .extract import (
-    extract_history_data,
     extract_refund_data,
     extract_shipping_details,
     extract_time_key,
@@ -252,8 +251,11 @@ async def fetch_ebay_orders(limit: int, db: FirebaseDB, user: IUser, user_ref: A
     oauth_token: str = user.connectedAccounts.ebay.ebayAccessToken
     new_items_count, old_items_count, page = 0, 0, 1
 
+    if (user.store.storeMeta.get("ebay") is None):
+        return
+
     # Step 2: Determine the time to start fetch orders
-    time_from = user.store["ebay"].lastFetchedDate.orders
+    time_from = user.store.storeMeta["ebay"].lastFetchedDate.orders
     if not time_from:
         time_from = (datetime.now(timezone.utc) - timedelta(days=90)).isoformat()
         user_sub = fetch_user_member_sub(user)
@@ -459,11 +461,6 @@ async def handle_new_order(
             else round(total_sale_price - sale_price - shipping["fees"], 2)
         )
 
-        # History
-        history = extract_history_data(
-            order_status, transaction, shipping, refund, sale_price, modification_date
-        )
-
         return {
             "additionalFees": additional_fees,
             "customTag": listing_data.get("customTag"),
@@ -486,9 +483,8 @@ async def handle_new_order(
             "shipping": shipping,
             "status": order_status,
             "storeType": "ebay",
-            "history": history,
             "refund": refund,
-            "lastModified": format_date_to_iso(datetime.now(timezone.utc)),
+            "lastModified": modification_date,
         }
 
     except Exception as error:
@@ -529,17 +525,6 @@ async def handle_modified_order(
             else round(total_sale_price - sale_price - new_shipping.get("fees", 0), 2)
         )
 
-        # Combines current history and new history
-        history = extract_history_data(
-            order_status,
-            transaction,
-            new_shipping,
-            refund,
-            sale_price,
-            modification_date,
-            db_transaction.get("history"),
-        )
-
         updated_order = db_transaction.copy()
         changes_found = False
 
@@ -570,10 +555,7 @@ async def handle_modified_order(
 
         # Update history and last modified date if anything changed
         if changes_found:
-            updated_order["history"] = history
-            updated_order["lastModified"] = format_date_to_iso(
-                datetime.now(timezone.utc)
-            )
+            updated_order["lastModified"] = modification_date
 
         return updated_order
 
