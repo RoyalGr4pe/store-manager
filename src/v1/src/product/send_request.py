@@ -1,8 +1,10 @@
+# Local Imports
+from .tls_client import Session
+
 # External Imports
 from bs4 import BeautifulSoup
 from urllib.parse import urlparse
 
-import tls_client
 import traceback
 import ssl
 
@@ -18,7 +20,7 @@ def http_request(url: str):
     try:
         headers = {**HEADERS, "Referer": get_root(url)}
 
-        session = tls_client.Session(
+        session = Session(
             client_identifier="chrome112", random_tls_extension_order=True
         )
 
