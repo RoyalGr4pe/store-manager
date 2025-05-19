@@ -26,15 +26,12 @@ def extract_meta(html: BeautifulSoup) -> dict:
     return meta
 
 
-def parse_product_data(meta: dict) -> dict:
+def parse_product_data(meta: dict, url: str) -> dict:
     # Title: prefer Open Graph, fallback to title tag
     title = meta.get('og:title') or meta.get('title')
 
     # Description: prefer Open Graph, fallback to meta description
     description = meta.get('og:description') or meta.get('description')
-
-    # URL
-    url = meta.get('og:url')
 
     # Price
     price = None

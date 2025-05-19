@@ -44,7 +44,7 @@ async def retrieve_product(request: Request):
         if meta is None:
             return {}
     
-        return parse_product_data(meta)
+        return parse_product_data(meta, url)
 
     except Exception as error:
         print(traceback.format_exc())
