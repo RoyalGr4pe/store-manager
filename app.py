@@ -2,6 +2,7 @@
 from src.utils import ratelimit_error
 from src.config import title, description, version, config
 from src.v1.routes import update as update_v1_routes
+from src.v1.routes import product as product_v1_routes
 
 # External Imports
 from fastapi.middleware.cors import CORSMiddleware
@@ -37,12 +38,13 @@ app.add_middleware(
         "http://localhost:3000",
     ],
     allow_credentials=True,
-    allow_methods=["GET", "POST", "PUT", "DELETE"],
+    allow_methods=["OPTIONS", "GET", "POST", "PUT", "DELETE"],
     allow_headers=["X-Requested-With", "Authorization", "Content-Type"],
 )
 
 # V1 Routes
 app.include_router(update_v1_routes.router, prefix="/v1/update", tags=["update v1"])
+app.include_router(product_v1_routes.router, prefix="/v1/product", tags=["product v1"])
 
 
 @app.get("/")
