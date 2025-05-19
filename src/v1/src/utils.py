@@ -1,4 +1,4 @@
-from ..src.models import IUser, ISubscription
+from ..src.models import IUser, ISubscription, INumListings, INumOrders
 from google.cloud.firestore_v1 import AsyncDocumentReference
 
 from datetime import datetime, timezone
@@ -93,13 +93,11 @@ async def fetch_user_inventory_and_orders_count(
     user: IUser, user_ref: AsyncDocumentReference, db
 ) -> dict[str, int]:
     """
-    Returns a dictionary with counts of automatic/manual listings and orders
-    aggregated across all stores on the given user object.
-
-    If today is after a store's numOrders.resetDate, that store's
-    order counts are treated as zero.
+    Returns a dictionary with counts of automatic/manual listings and orders.
+    If resetDate has passed, order counts are reset and excluded from totals.
     """
-    if user.store is None:
+
+    if not user.store:
         return {
             "automaticListings": 0,
             "manualListings": 0,
@@ -107,51 +105,55 @@ async def fetch_user_inventory_and_orders_count(
             "manualOrders": 0,
         }
 
+    today = datetime.now(timezone.utc).date()
+
     automatic_listings = 0
     manual_listings = 0
     automatic_orders = 0
     manual_orders = 0
 
-    today = datetime.now(timezone.utc).date()
+    store_data = user.store
 
-    # Iterate over all declared store fields dynamically
-    for store_name, store in user.store.items():
-        if store is None:
-            continue
+    # --- Listings ---
+    if isinstance(getattr(store_data, "numListings", None), INumListings):
+        automatic_listings += store_data.numListings.automatic or 0
+        manual_listings += store_data.numListings.manual or 0
 
-        # --- Listings ---
-        if store.numListings:
-            automatic_listings += store.numListings.automatic or 0
-            manual_listings += store.numListings.manual or 0
+    # --- Orders ---
+    auto, manual = 0, 0
+    reset_needed = False
+    store_type_key = None  # We'll track the first found store type (like 'ebay') to call reset if needed
 
-        # --- Orders ---
-        if store.numOrders:
-            reset_str = store.numOrders.resetDate
-            # parse resetDate if present, else assume never reset
-            if reset_str:
-                # assume ISO format 'YYYY-MM-DD' or full datetime
+    if isinstance(getattr(store_data, "numOrders", None), INumOrders):
+        reset_str = store_data.numOrders.resetDate
+        reset_date = None
+
+        if reset_str:
+            try:
                 reset_date = (
                     datetime.fromisoformat(reset_str).date()
-                    if "T" in reset_str
-                    else datetime.strptime(reset_str, "%Y-%m-%d").date()
+                    if "T" in reset_str else datetime.strptime(reset_str, "%Y-%m-%d").date()
                 )
-            else:
-                await db.set_current_no_orders(
-                    user_ref, store.numOrders, 0, 0, store_name
-                )
+            except Exception:
                 reset_date = None
 
-            # if reset_date exists and today is after it, zero out this store’s counts
-            if reset_date and today > reset_date:
-                auto = 0
-                manual = 0
-                await db.reset_current_no_orders(user_ref, store_name)
-            else:
-                auto = store.numOrders.automatic or 0
-                manual = store.numOrders.manual or 0
+        if reset_date and today > reset_date:
+            reset_needed = True
+        else:
+            auto = store_data.numOrders.automatic or 0
+            manual = store_data.numOrders.manual or 0
 
-            automatic_orders += auto
-            manual_orders += manual
+    automatic_orders += auto
+    manual_orders += manual
+
+    # --- Optional: Reset in Firestore if needed ---
+    if reset_needed:
+        for key, value in store_data.items():
+            if isinstance(value, dict) and "lastFetchedDate" in value:
+                store_type_key = key
+                break
+        if store_type_key:
+            await db.reset_current_no_orders(user_ref, store_type_key)
 
     return {
         "automaticListings": automatic_listings,
