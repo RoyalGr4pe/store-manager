@@ -3,7 +3,6 @@ from platform import machine
 import ctypes
 import os
 
-
 if platform == 'darwin':
     file_ext = '-arm64.dylib' if machine() == "arm64" else '-x86.dylib'
 elif platform in ('win32', 'cygwin'):
