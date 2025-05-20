@@ -180,6 +180,7 @@ async def update_items(
 
         # Step 3: Extract
         items = res.get("content")
+        force_update = res.get("force_update", False)
         new_items_count = res.get("new", 0)
         old_items_count = res.get("old", 0)
         offset = res.get("offset")
@@ -196,6 +197,7 @@ async def update_items(
             item_type,
             store_type,
             id_key,
+            force_update
         )
 
         return {"success": True}
@@ -215,9 +217,10 @@ async def update_db(
     item_type: ItemType,
     store_type: StoreType,
     id_key: IdKey,
+    force_update: bool
 ):
     try:
-        if not items:
+        if not items and not force_update:
             return
 
         # Step 1: Add items to that database

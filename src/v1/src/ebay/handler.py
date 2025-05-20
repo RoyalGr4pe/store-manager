@@ -51,6 +51,7 @@ async def fetch_ebay_listings(limit: int, db: FirebaseDB, user: IUser, user_ref:
     available_slots = limit - user_count["automaticListings"]
 
     items = []
+    force_update = False
     while_loop_count = 0
     try:
         while available_slots > 0:
@@ -67,7 +68,7 @@ async def fetch_ebay_listings(limit: int, db: FirebaseDB, user: IUser, user_ref:
                 break
 
             # Step 4: Process the listings
-            items, new_items_count, available_slots = await process_listings(
+            items, new_items_count, available_slots, force_update = await process_listings(
                 listings, user, db, available_slots, id_key
             )
 
@@ -78,7 +79,7 @@ async def fetch_ebay_listings(limit: int, db: FirebaseDB, user: IUser, user_ref:
             # Step 6: Move to the next page
             page += 1
 
-        return {"content": items, "new": new_items_count}
+        return {"content": items, "new": new_items_count, "force_update": force_update}
 
     except Exception as error:
         print(traceback.format_exc())
@@ -124,7 +125,7 @@ async def fetch_listings_from_ebay(oauth_token: str, limit: int, page: int):
 async def process_listings(
     listings: list, user: IUser, db: FirebaseDB, available_slots: int, id_key: IdKey
 ):
-    items, new_items_count = [], 0
+    items, new_items_count, force_update = [], 0, False
 
     try:
         # Step 1: Create a list of ids from the listing
@@ -147,7 +148,9 @@ async def process_listings(
             # Step 4: Check if the quantity is zero, if it is then ignore this listing, if it is zero and the listing exists in the database, then remove it
             quantity = int(listing.get("QuantityAvailable", 0))
             if quantity == 0 and db_listing is not None:
-                db.remove_item(user.id, listing["ItemID"], inventory_key, "ebay")
+                await db.remove_item(user.id, listing["ItemID"], inventory_key, "ebay")
+                new_items_count -= 1
+                force_update = True
             elif quantity == 0:
                 continue
 
@@ -180,7 +183,7 @@ async def process_listings(
             if available_slots <= 0:
                 return items, new_items_count, available_slots
 
-        return items, new_items_count, available_slots
+        return items, new_items_count, available_slots, force_update
 
     except Exception as error:
         print(traceback.format_exc())
@@ -467,7 +470,7 @@ async def handle_new_order(
             "transactionId": transaction_id,
             "name": transaction["Item"]["Title"],
             "itemId": item_id,
-            "image": [listing_data.get("image")],
+            "image": listing_data.get("image"),
             "orderId": order["OrderID"],
             "purchase": listing_data["purchase"],
             "recordType": "automatic",
