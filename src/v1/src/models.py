@@ -62,6 +62,7 @@ class IInventoryItem(BaseModel):
     quantity: int
     purchase: Optional[PurchaseInfo] = None
     customTag: Optional[str] = None
+    createdAt: Optional[str] = None
     dateListed: str
     recordType: RecordType
     lastModified: str
@@ -122,6 +123,7 @@ class IOrder(BaseModel):
     history: Optional[List[IHistory]] = None
     orderId: Optional[str] = None
     shipping: Optional[IShipping] = None
+    createdAt: Optional[str] = None
     storeType: Optional[StoreType] = None
     purchase: Optional[IPurchase] = None
     customTag: Optional[str]
