@@ -156,6 +156,7 @@ async def process_listings(
 
             # Step 6: Create the listing dictionary
             item = {
+                "createdAt": format_date_to_iso(datetime.now()),
                 "currency": listing["BuyItNowPrice"]["_currencyID"],
                 "dateListed": listing["ListingDetails"]["StartTime"],
                 "image": [listing["PictureDetails"]["GalleryURL"]],
@@ -466,6 +467,7 @@ async def handle_new_order(
 
         return {
             "additionalFees": additional_fees,
+            "createdAt": format_date_to_iso(datetime.now()),
             "customTag": listing_data.get("customTag"),
             "transactionId": transaction_id,
             "name": transaction["Item"]["Title"],
