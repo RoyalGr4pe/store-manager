@@ -21,8 +21,6 @@ from ..utils import (
     fetch_user_inventory_and_orders_count,
 )
 
-from src.utils import generate_random_flippify_id
-
 # External Imports
 from google.cloud.firestore_v1 import AsyncDocumentReference
 from ebaysdk.trading import Connection as Trading
@@ -41,7 +39,9 @@ load_dotenv()
 # --------------------------------------------------- #
 
 
-async def fetch_ebay_listings(limit: int, db: FirebaseDB, user: IUser, user_ref: AsyncDocumentReference, **kwargs):
+async def fetch_ebay_listings(
+    limit: int, db: FirebaseDB, user: IUser, user_ref: AsyncDocumentReference, **kwargs
+):
     # Step 1: Extract kwargs
     id_key = kwargs.get("id_key")
     oauth_token: str = user.connectedAccounts.ebay.ebayAccessToken
@@ -70,8 +70,8 @@ async def fetch_ebay_listings(limit: int, db: FirebaseDB, user: IUser, user_ref:
                 break
 
             # Step 4: Process the listings
-            items, new_items_count, available_slots, force_update = await process_listings(
-                listings, user, db, available_slots, id_key
+            items, new_items_count, available_slots, force_update = (
+                await process_listings(listings, user, db, available_slots, id_key)
             )
 
             # Step 5: If there are no more pages or available slots, break the loop
@@ -158,7 +158,6 @@ async def process_listings(
 
             # Step 6: Create the listing dictionary
             item = {
-                "id": generate_random_flippify_id(),
                 "createdAt": format_date_to_iso(datetime.now()),
                 "currency": listing["BuyItNowPrice"]["_currencyID"],
                 "dateListed": listing["ListingDetails"]["StartTime"],
@@ -176,7 +175,7 @@ async def process_listings(
                 "ebay": {
                     "type": listing["ListingType"],
                 },
-                "storeType": "ebay"
+                "storeType": "ebay",
             }
 
             if check_for_listing_changes(item, db_listing):
@@ -253,12 +252,14 @@ def fetch_listing_details_from_ebay(item_id: str, oauth_token: str):
 # --------------------------------------------------- #
 
 
-async def fetch_ebay_orders(limit: int, db: FirebaseDB, user: IUser, user_ref: AsyncDocumentReference, **kwargs):
+async def fetch_ebay_orders(
+    limit: int, db: FirebaseDB, user: IUser, user_ref: AsyncDocumentReference, **kwargs
+):
     # Step 1: Extract kwargs
     oauth_token: str = user.connectedAccounts.ebay.ebayAccessToken
     new_items_count, old_items_count, page = 0, 0, 1
 
-    if (user.store.storeMeta.get("ebay") is None):
+    if user.store.storeMeta.get("ebay") is None:
         return
 
     # Step 2: Determine the time to start fetch orders
@@ -468,21 +469,14 @@ async def handle_new_order(
             else round(total_sale_price - sale_price - shipping["fees"], 2)
         )
 
-        doc_id = listing_data.get("id")
-        if not doc_id:
-            doc_id = generate_random_flippify_id()
-
         image = listing_data.get("image")
-        if (not isinstance(image, list)):
+        if not isinstance(image, list):
             image = [image]
 
         return {
-            "id": doc_id,
             "additionalFees": additional_fees,
             "createdAt": format_date_to_iso(datetime.now()),
             "customTag": listing_data.get("customTag"),
-            "condition": listing_data.get("condition"),
-            "storageLocation": listing_data.get("storageLocation"),
             "transactionId": transaction_id,
             "name": transaction["Item"]["Title"],
             "itemId": item_id,
