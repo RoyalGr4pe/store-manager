@@ -1,4 +1,4 @@
-from typing import Optional, List, Literal
+from typing import Optional, List, Literal, Union
 from pydantic import BaseModel, Field
 
 # Enum-like types
@@ -17,7 +17,7 @@ OrderStatus = Literal[
     "Inactive",
     "InProcess",
 ]
-
+Condition = Union[Literal["new", "used", "open-box", "refurbished"], str]
 
 class EbayTokenData(BaseModel):
     access_token: str
@@ -52,22 +52,24 @@ class ICustomDepopData(BaseModel):
 
 
 class IInventoryItem(BaseModel):
-    name: str
+    name: Optional[str] = None
     ebay: Optional[ICustomEbayData] = None
-    price: float
-    image: List[str]
+    price: Optional[float] = None
+    image: Optional[List[str]] = None
     depop: Optional[ICustomEbayData] = None
-    itemId: str
-    currency: str
-    quantity: int
+    itemId: Optional[str] = None
+    currency: Optional[str] = None
+    quantity: Optional[int] = None
     purchase: Optional[PurchaseInfo] = None
+    condition: Optional[Condition] = None
     customTag: Optional[str] = None
     createdAt: Optional[str] = None
-    dateListed: str
-    recordType: RecordType
-    lastModified: str
-    initialQuantity: int
     storeType: Optional[StoreType] = None
+    dateListed: Optional[str] = None
+    recordType: Optional[RecordType] = None
+    lastModified: Optional[str] = None
+    storageLocation: Optional[str] = None
+    initialQuantity: Optional[int] = None
 
 
 class IShipping(BaseModel):
@@ -114,8 +116,8 @@ class IRefund(BaseModel):
 
 class IOrder(BaseModel):
     name: str
-    depop: Optional[ICustomDepopData] = None
     sale: Optional[ISale] = None
+    depop: Optional[ICustomDepopData] = None
     image: Optional[List[str]] = None
     status: OrderStatus
     itemId: Optional[str] = None
@@ -123,15 +125,17 @@ class IOrder(BaseModel):
     history: Optional[List[IHistory]] = None
     orderId: Optional[str] = None
     shipping: Optional[IShipping] = None
-    createdAt: Optional[str] = None
-    storeType: Optional[StoreType] = None
     purchase: Optional[IPurchase] = None
-    customTag: Optional[str]
+    customTag: Optional[str] = None
+    createdAt: Optional[str] = None
+    condition: Optional[Condition] = None
+    storeType: Optional[StoreType] = None
     recordType: RecordType
     listingDate: Optional[str] = None
     lastModified: str
     transactionId: str
     additionalFees: float
+    storageLocation: Optional[str] = None
 
 
 # --------------------------------------------------- #
