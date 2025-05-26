@@ -283,7 +283,7 @@ class FirebaseDB:
 
     @handle_firestore_errors
     async def add_items(
-        self, uid: str, items: list, item_type: ItemType, store_type: StoreType, id_key
+        self, uid: str, items: list, item_type: ItemType, store_type: StoreType
     ):
         """
         Add items as individual documents in the <store_type> sub-collection.
@@ -296,7 +296,7 @@ class FirebaseDB:
         try:
             # Iterate through the items and add them as individual documents
             for item in items:
-                doc_id = item.get(id_key)
+                doc_id = item.get("id")
 
                 if doc_id:
                     # Add or update the <store_type> in the sub-collection

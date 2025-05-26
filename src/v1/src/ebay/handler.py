@@ -21,6 +21,8 @@ from ..utils import (
     fetch_user_inventory_and_orders_count,
 )
 
+from src.utils import generate_random_flippify_id
+
 # External Imports
 from google.cloud.firestore_v1 import AsyncDocumentReference
 from ebaysdk.trading import Connection as Trading
@@ -156,6 +158,7 @@ async def process_listings(
 
             # Step 6: Create the listing dictionary
             item = {
+                "id": generate_random_flippify_id(),
                 "createdAt": format_date_to_iso(datetime.now()),
                 "currency": listing["BuyItNowPrice"]["_currencyID"],
                 "dateListed": listing["ListingDetails"]["StartTime"],
@@ -465,10 +468,17 @@ async def handle_new_order(
             else round(total_sale_price - sale_price - shipping["fees"], 2)
         )
 
+        doc_id = listing_data.get("id")
+        if not doc_id:
+            doc_id = generate_random_flippify_id()
+
         return {
+            "id": doc_id,
             "additionalFees": additional_fees,
             "createdAt": format_date_to_iso(datetime.now()),
             "customTag": listing_data.get("customTag"),
+            "condition": listing_data.get("condition"),
+            "storageLocation": listing_data.get("storageLocation"),
             "transactionId": transaction_id,
             "name": transaction["Item"]["Title"],
             "itemId": item_id,

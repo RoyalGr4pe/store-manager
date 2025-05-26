@@ -224,7 +224,7 @@ async def update_db(
             return
 
         # Step 1: Add items to that database
-        res = await db.add_items(user.id, items, item_type, store_type, id_key)
+        res = await db.add_items(user.id, items, item_type, store_type)
         if not res.get("success"):
             raise Exception(res.get("message"))
 
