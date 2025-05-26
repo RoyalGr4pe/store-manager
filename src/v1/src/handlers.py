@@ -10,7 +10,7 @@ from .models import (
     StoreType,
     ItemType,
     IdKey,
-    StoreEntry
+    StoreEntry,
 )
 from .utils import (
     format_date_to_iso,
@@ -115,7 +115,7 @@ def add_and_update_store(user: IUser, store_type: StoreType) -> IUser:
     if user.store is None:
         user.store = {}
 
-   # Step 2: Add numListings if missing
+    # Step 2: Add numListings if missing
     if not isinstance(getattr(user.store, "numListings", None), INumListings):
         user.store.numListings = INumListings(automatic=0, manual=0)
 
@@ -197,7 +197,7 @@ async def update_items(
             item_type,
             store_type,
             id_key,
-            force_update
+            force_update,
         )
 
         return {"success": True}
@@ -217,14 +217,14 @@ async def update_db(
     item_type: ItemType,
     store_type: StoreType,
     id_key: IdKey,
-    force_update: bool
+    force_update: bool,
 ):
     try:
         if not items and not force_update:
             return
 
         # Step 1: Add items to that database
-        res = await db.add_items(user.id, items, item_type, store_type)
+        res = await db.add_items(user.id, items, item_type, store_type, id_key)
         if not res.get("success"):
             raise Exception(res.get("message"))
 
