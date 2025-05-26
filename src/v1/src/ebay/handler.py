@@ -472,6 +472,10 @@ async def handle_new_order(
         if not doc_id:
             doc_id = generate_random_flippify_id()
 
+        image = listing_data.get("image")
+        if (not isinstance(image, list)):
+            image = [image]
+
         return {
             "id": doc_id,
             "additionalFees": additional_fees,
@@ -482,7 +486,7 @@ async def handle_new_order(
             "transactionId": transaction_id,
             "name": transaction["Item"]["Title"],
             "itemId": item_id,
-            "image": listing_data.get("image"),
+            "image": image,
             "orderId": order["OrderID"],
             "purchase": listing_data["purchase"],
             "recordType": "automatic",
