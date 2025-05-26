@@ -152,8 +152,11 @@ async def process_listings(
             if quantity == 0 and db_listing is not None:
                 await db.remove_item(user.id, listing["ItemID"], inventory_key, "ebay")
                 new_items_count -= 1
+                available_slots += 1
                 force_update = True
             elif quantity == 0:
+                new_items_count -= 1
+                available_slots += 1
                 continue
 
             # Step 6: Create the listing dictionary
