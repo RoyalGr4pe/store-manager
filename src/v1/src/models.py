@@ -184,15 +184,15 @@ class ISubscription(BaseModel):
 
 
 class IReferral(BaseModel):
-    referralCode: str
+    referralCode: Optional[str] = None
     referredBy: Optional[str] = None
-    validReferrals: List[str]
-    rewardsClaimed: int
+    validReferrals: Optional[List[str]] = None
+    rewardsClaimed: Optional[int] = None
 
 
 class IPreferences(BaseModel):
-    locale: str
-    currency: CurrencyType
+    locale: Optional[str] = None
+    currency: Optional[CurrencyType] = None
 
 
 class INumListings(BaseModel):
