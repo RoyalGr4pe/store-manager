@@ -479,6 +479,9 @@ async def handle_new_order(
         return {
             "additionalFees": additional_fees,
             "createdAt": format_date_to_iso(datetime.now()),
+            "condition": listing_data.get("condition"),
+            "storageLocation": listing_data.get("storageLocation"),
+            "createdAt": format_date_to_iso(datetime.now()),
             "customTag": listing_data.get("customTag"),
             "transactionId": transaction_id,
             "name": transaction["Item"]["Title"],
