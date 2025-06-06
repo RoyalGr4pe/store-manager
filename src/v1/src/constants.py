@@ -5,7 +5,7 @@ import os
 load_dotenv()
 
 # Max items fetched before the current month
-history_limits = {"Free - member": 50, "Standard - member": 100, "Pro - member": 500}
+history_limits = {"Free - member": 50, "Standard - member": 100, "Pro - member": 500, "Enterprise 1 - member": 700, "Enterprise 2 - member": 800, "Enterprise 3 - member": 900, "Enterprise 4 - member": 1000}
 
 
 # Path to the cookiejar file
