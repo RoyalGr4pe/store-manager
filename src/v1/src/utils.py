@@ -38,7 +38,7 @@ def fetch_users_limits(sub_name, limit_type):
 
     # Extract the first work of the subscription
     # i.e. Standard - member -> standard
-    formatted_sub_name = sub_name.split(" ")[0].lower()
+    formatted_sub_name = sub_name.split(" - member")[0].lower()
 
     # Dict which looks something like for listings
     # {
@@ -148,7 +148,7 @@ async def fetch_user_inventory_and_orders_count(
 
     # --- Optional: Reset in Firestore if needed ---
     if reset_needed:
-        for key, value in store_data.items():
+        for key, value in store_data.storeMeta.items():
             if isinstance(value, dict) and "lastFetchedDate" in value:
                 store_type_key = key
                 break
