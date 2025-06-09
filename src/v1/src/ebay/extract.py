@@ -62,6 +62,7 @@ def extract_taxes(transaction: dict):
     if (not taxes): return
 
     total_amount = taxes.get("TotalTaxAmount")
+    tax_details = taxes.get("TaxDetails")
 
     try: 
         value = float(total_amount.get("value"))
@@ -69,7 +70,9 @@ def extract_taxes(transaction: dict):
 
         return {
             "amount": value,
-            "currency": currency
+            "currency": currency,
+            "type": tax_details.get("Imposition"),
+            "description": tax_details.get("TaxDescription")
         }
 
     except Exception as error:
