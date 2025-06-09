@@ -12,6 +12,7 @@ from .extract import (
     extract_refund_data,
     extract_shipping_details,
     extract_time_key,
+    extract_taxes
 )
 from ..models import IUser, OrderStatus, IdKey
 from ..utils import (
@@ -466,10 +467,14 @@ async def handle_new_order(
             order, transaction.get("ShippingDetails", {})
         )
 
+        # Tax 
+        tax = extract_taxes(transaction)
+        tax_amount = tax.get("amount") if tax is not None else 0
+
         additional_fees = (
             0.0
             if is_cancelled
-            else round(total_sale_price - sale_price - shipping["fees"], 2)
+            else round(total_sale_price - sale_price - shipping["fees"] - tax_amount, 2)
         )
 
         image = listing_data.get("image")
@@ -499,6 +504,7 @@ async def handle_new_order(
                 "quantity": quantity_sold,
                 "buyerUsername": order["BuyerUserID"],
             },
+            "tax": tax, 
             "shipping": shipping,
             "status": order_status,
             "storeType": "ebay",

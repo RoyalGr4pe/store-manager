@@ -3,6 +3,7 @@ from ..utils import format_date_to_iso
 
 # External Imports
 from datetime import datetime, timezone, timedelta
+from pprint import pprint
 
 import traceback
 
@@ -33,7 +34,6 @@ def extract_refund_data(
 
     except Exception as error:
         print(traceback.format_exc())
-        raise error
 
 
 def extract_shipping_details(order: dict, shipping_details: dict):
@@ -54,8 +54,26 @@ def extract_shipping_details(order: dict, shipping_details: dict):
 
     except Exception as error:
         print(traceback.format_exc())
-        return error
 
+
+def extract_taxes(transaction: dict):
+    taxes = transaction.get("Taxes")
+
+    if (not taxes): return
+
+    total_amount = taxes.get("TotalTaxAmount")
+
+    try: 
+        value = float(total_amount.get("value"))
+        currency = total_amount.get("_currencyID")
+
+        return {
+            "amount": value,
+            "currency": currency
+        }
+
+    except Exception as error:
+        print(traceback.format_exc())
 
 def extract_shipping_cost(order):
     shipping_service_options = order["ShippingDetails"].get(

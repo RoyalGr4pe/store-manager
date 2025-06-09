@@ -130,7 +130,7 @@ class FirebaseDB:
         store_type: StoreType,
     ):
         """Set the last fetched date for inventory or orders."""
-        await user_ref.update({f"store.{store_type}.lastFetchedDate.{data_type}": date})
+        await user_ref.update({f"store.storeMeta.{store_type}.lastFetchedDate.{data_type}": date})
 
     @handle_firestore_errors
     async def set_offset(
@@ -141,7 +141,7 @@ class FirebaseDB:
         store_type: StoreType,
     ):
         """Set offset for inventory or orders."""
-        await user_ref.update({f"store.{store_type}.offset.{data_type}": date})
+        await user_ref.update({f"store.storeMeta.{store_type}.offset.{data_type}": date})
 
     @handle_firestore_errors
     async def set_current_no_listings(

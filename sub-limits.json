@@ -15,6 +15,22 @@
         "pro": {
             "automatic": 96,
             "manual": 96
+        },
+        "enterprise 1": {
+            "automatic": 200,
+            "manual": 200
+        },
+        "enterprise 2": {
+            "automatic": 500,
+            "manual": 500
+        },
+        "enterprise 3": {
+            "automatic": 750,
+            "manual": 750
+        },
+        "enterprise 4": {
+            "automatic": 1000,
+            "manual": 1000
         }
     },
     "orders": {
@@ -33,6 +49,22 @@
         "pro": {
             "automatic": 96,
             "manual": 96
+        },
+        "enterprise 1": {
+            "automatic": 200,
+            "manual": 200
+        },
+        "enterprise 2": {
+            "automatic": 500,
+            "manual": 500
+        },
+        "enterprise 3": {
+            "automatic": 750,
+            "manual": 750
+        },
+        "enterprise 4": {
+            "automatic": 1000,
+            "manual": 1000
         }
     }
 }
