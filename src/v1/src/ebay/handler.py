@@ -467,11 +467,11 @@ async def handle_new_order(
             order, transaction.get("ShippingDetails", {})
         )
 
-        # Tax 
+        # Tax
         tax = extract_taxes(transaction)
         tax_amount = tax.get("amount") if tax is not None else 0
 
-        additional_fees = (
+        buyer_additional_fees = (
             0.0
             if is_cancelled
             else round(total_sale_price - sale_price - shipping["fees"] - tax_amount, 2)
@@ -482,7 +482,7 @@ async def handle_new_order(
             image = [image]
 
         return {
-            "additionalFees": additional_fees,
+            "buyerAdditionalFees": buyer_additional_fees,
             "createdAt": format_date_to_iso(datetime.now()),
             "condition": listing_data.get("condition"),
             "storageLocation": listing_data.get("storageLocation"),
@@ -504,7 +504,7 @@ async def handle_new_order(
                 "quantity": quantity_sold,
                 "buyerUsername": order["BuyerUserID"],
             },
-            "tax": tax, 
+            "tax": tax,
             "shipping": shipping,
             "status": order_status,
             "storeType": "ebay",
