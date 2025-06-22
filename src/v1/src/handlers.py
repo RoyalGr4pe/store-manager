@@ -27,6 +27,7 @@ from .constants import inventory_key, sale_key
 # eBay
 from .ebay.handler import fetch_ebay_listings, fetch_ebay_orders
 from .ebay.tokens import check_and_refresh_ebay_token
+from .stockx.tokens import check_and_refresh_stock_token
 
 # External Imports
 from google.cloud.firestore_v1 import AsyncDocumentReference
@@ -44,7 +45,7 @@ fetch_functions = {
 
 
 async def fetch_and_check_user(
-    request: Request, store_type: StoreType, item_type: ItemType
+    request: Request, store_type: StoreType, item_type: ItemType, ignore_limits: bool = False
 ):
     try:
         # Step 1: Check a uid was passed in with the url
@@ -88,14 +89,15 @@ async def fetch_and_check_user(
         # Step 7: Fetch the subscription limits
         limits: dict = fetch_users_limits(member_subscription.name, item_type)
 
-        # Step 8: Check to see if the user has reached their automatic limit
-        max_automatic_limit: int = limits["automatic"]
-        user_count = await fetch_user_inventory_and_orders_count(user, user_ref, db)
+        if not ignore_limits:
+            # Step 8: Check to see if the user has reached their automatic limit
+            max_automatic_limit: int = limits["automatic"]
+            user_count = await fetch_user_inventory_and_orders_count(user, user_ref, db)
 
-        if user_count["automaticOrders"] >= max_automatic_limit:
-            raise HTTPException(
-                status_code=400, detail="User has reached their automatic limit"
-            )
+            if user_count["automaticOrders"] >= max_automatic_limit:
+                raise HTTPException(
+                    status_code=400, detail="User has reached their automatic limit"
+                )
 
         # Step 9: Execute any custom functions required for a store
         store_res = await handle_store(store_type, request, db, user_ref, user)
@@ -155,6 +157,8 @@ async def handle_store(
     match store_type:
         case "ebay":
             return await check_and_refresh_ebay_token(request, db, user_ref, user)
+        case "stockx": 
+            return await check_and_refresh_stock_token(db, user_ref, user)
         case _:
             return {"success": True, "user": user}
 

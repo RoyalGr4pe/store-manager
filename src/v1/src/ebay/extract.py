@@ -45,6 +45,11 @@ def extract_shipping_details(order: dict, shipping_details: dict):
             else {}
         )
 
+        if (isinstance(tracking_details, list) and len(tracking_details) > 0):
+            tracking_details = tracking_details[0]
+        elif (isinstance(tracking_details, list)):
+            tracking_details = {}
+
         return {
             "fees": extract_shipping_cost(order),
             "date": order.get("ShippedTime") if order.get("ShippedTime") else None,

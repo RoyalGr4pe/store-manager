@@ -3,6 +3,7 @@ from .utils import get_next_month_reset_date, format_date_to_iso
 from .models import EbayTokenData, StoreType, INumOrders, ItemType, IdKey
 
 # External Imports
+from firebase_admin import auth, firestore, initialize_app, credentials
 from google.cloud.firestore_v1.async_client import AsyncClient
 from google.cloud.firestore_v1 import AsyncDocumentReference, FieldFilter
 from google.oauth2 import service_account
@@ -382,3 +383,9 @@ class FirebaseDB:
         except Exception as error:
             print(traceback.format_exc())
             raise error
+
+
+    @handle_firestore_errors
+    def retrieve_uid(self, id_token):
+        decoded_token = auth.verify_id_token(id_token)
+        return decoded_token["uid"]

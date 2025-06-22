@@ -72,6 +72,12 @@ class IInventoryItem(BaseModel):
     initialQuantity: Optional[int] = None
 
 
+class ITaxes(BaseModel):
+    amount: Optional[float] = None
+    type: Optional[str] = None
+    description: Optional[str] = None
+    currency: Optional[str] = None
+
 class IShipping(BaseModel):
     fees: float
     paymentToShipped: Optional[int] = None
@@ -115,6 +121,7 @@ class IRefund(BaseModel):
 
 
 class IOrder(BaseModel):
+    tax: Optional[ITaxes] = None
     name: str
     sale: Optional[ISale] = None
     depop: Optional[ICustomDepopData] = None
@@ -134,8 +141,9 @@ class IOrder(BaseModel):
     listingDate: Optional[str] = None
     lastModified: str
     transactionId: str
-    additionalFees: float
+    additionalFees: Optional[float] = None
     storageLocation: Optional[str] = None
+    buyerAdditionalFees: Optional[float] = None
 
 
 # --------------------------------------------------- #
@@ -171,6 +179,13 @@ class IEbay(BaseModel):
     error: Optional[str] = None
     error_description: Optional[str] = None
 
+class IStockX(BaseModel):
+    stockxAccessToken: str
+    stockxRefreshToken: str
+    stockxTokenExpiry: int
+    error: Optional[str] = None
+    error_description: Optional[str] = None
+
 class IDepop(BaseModel):
     shopId: str
 
@@ -178,7 +193,7 @@ class IConnectedAccounts(BaseModel):
     discord: Optional[IDiscord] = None
     ebay: Optional[IEbay] = None
     depop: Optional[IDepop] = None
-
+    stockx: Optional[IStockX] = None
 
 class ISubscription(BaseModel):
     id: str
