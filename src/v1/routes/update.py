@@ -33,7 +33,7 @@ async def update_inventory(request: Request):
             detail=f"Argument store_type was not provided",
         )
 
-    if (status_config["api"][store_type]) != "active":
+    if (status_config["api"].get(store_type)) != "active":
         return config
 
     user = None
@@ -87,7 +87,7 @@ async def update_orders(request: Request):
             detail=f"Argument store_type was not provided",
         )
 
-    if (status_config["api"][store_type]) != "active":
+    if (status_config["api"].get(store_type)) != "active":
         return config
 
     user = None
