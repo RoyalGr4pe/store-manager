@@ -15,7 +15,8 @@ status_config = {
     "api": {
         "ebay": "unknown",
         "depop": "unknown",
-        "product": "unknown"
+        "product": "unknown",
+        "stockx": "unknown"
     }
 }
 

@@ -28,7 +28,7 @@ async def root(request: Request):
 @router.get("/retrieve")
 @limiter.limit("3/second")
 async def retrieve_product(request: Request):
-    if (status_config["api"]["product"]) != "active":
+    if (status_config["api"].get("product")) != "active":
         return config
     
     url = request.query_params.get("url")
