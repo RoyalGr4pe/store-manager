@@ -154,13 +154,16 @@ async def handle_store(
     user_ref: AsyncDocumentReference,
     user: IUser,
 ):
-    match store_type:
-        case "ebay":
-            return await check_and_refresh_ebay_token(request, db, user_ref, user)
-        case "stockx": 
-            return await check_and_refresh_stock_token(db, user_ref, user)
-        case _:
-            return {"success": True, "user": user}
+    try: 
+        match store_type:
+            case "ebay":
+                return await check_and_refresh_ebay_token(request, db, user_ref, user)
+            case "stockx": 
+                return await check_and_refresh_stock_token(db, user_ref, user)
+            case _:
+                return {"success": True, "user": user}
+    except Exception as error:
+        return {"success": False, "error": error}
 
 
 async def update_items(
