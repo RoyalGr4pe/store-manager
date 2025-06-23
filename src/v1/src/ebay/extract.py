@@ -59,6 +59,7 @@ def extract_shipping_details(order: dict, shipping_details: dict):
 
     except Exception as error:
         print(traceback.format_exc())
+        return {}
 
 
 def extract_taxes(transaction: dict):
