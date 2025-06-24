@@ -334,6 +334,18 @@ async def fetch_orders_from_ebay(
     """
     Fetch orders from the eBay API with pagination.
     """
+
+    try:
+        # Extract date portion and convert to date
+        provided_date = datetime.fromisoformat(time_from[:10]).date()
+    except ValueError:
+        raise ValueError(f"Invalid date format for time_from: {time_from}")
+
+    cutoff_date = datetime.now(timezone.utc).date() - timedelta(days=90)
+    if provided_date < cutoff_date:
+        # Override to exactly 90 days ago
+        time_from = cutoff_date.isoformat()
+
     api = Trading(
         appid=os.getenv("CLIENT_ID"),
         devid=os.getenv("DEV_ID"),
