@@ -19,6 +19,9 @@ def extract_refund_data(
         refund_info = order.get("MonetaryDetails", {}).get("Refunds", {}).get("Refund")
         if refund_info is None:
             return None
+        
+        if (isinstance(refund_info, list) and len(refund_info) > 0):
+            refund_info = refund_info[0]
 
         return {
             "status": refund_info.get("RefundStatus"),
