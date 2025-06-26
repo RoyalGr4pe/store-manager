@@ -5,7 +5,6 @@ from ..src.constants import inventory_key, sale_key, inventory_id_key, sale_id_k
 from ..src.db_firebase import get_db
 
 # External Imports
-from fastapi.concurrency import run_in_threadpool
 from slowapi.util import get_remote_address
 from fastapi import HTTPException, Request, APIRouter
 from fastapi import BackgroundTasks
@@ -62,25 +61,21 @@ async def update_inventory(request: Request, background_tasks: BackgroundTasks):
         raise HTTPException(status_code=500, detail=str(error))
 
     try:
-        def wrapped_update():
-            asyncio.run(update_items(
-                store_type,
-                inventory_key,
-                inventory_id_key,
-                db,
-                user,
-                user_ref,
-                limits,
-                request
-            ))
-
-        # Offload the async function to a background thread via a sync wrapper
-        background_tasks.add_task(asyncio.to_thread, wrapped_update)
-
-        return {"success": True}
+        asyncio.create_task(update_items(
+            store_type,
+            inventory_key,
+            inventory_id_key,
+            db,
+            user,
+            user_ref,
+            limits,
+            request
+        ))
 
     except Exception as error:
         raise HTTPException(status_code=500, detail=str(error))
+    
+    return {"success": True}
 
 
 # Update orders endpoint
@@ -120,22 +115,19 @@ async def update_orders(request: Request, background_tasks: BackgroundTasks):
         raise HTTPException(status_code=500, detail=str(error))
 
     try:
-        def wrapped_update():
-            asyncio.run(update_items(
-                store_type,
-                sale_key,
-                sale_id_key,
-                db,
-                user,
-                user_ref,
-                limits,
-                request
-            ))
+        asyncio.create_task(update_items(
+            store_type,
+            sale_key,
+            sale_id_key,
+            db,
+            user,
+            user_ref,
+            limits,
+            request
+        ))
 
-        # Offload the CPU-bound task to a thread pool
-        background_tasks.add_task(asyncio.to_thread, wrapped_update)
-
-        return {"success": True}
     except Exception as error:
         print(traceback.format_exc())
         raise HTTPException(status_code=500, detail=str(error))
+    
+    return {"success": True}
