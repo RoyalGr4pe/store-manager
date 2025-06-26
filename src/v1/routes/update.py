@@ -5,11 +5,14 @@ from ..src.constants import inventory_key, sale_key, inventory_id_key, sale_id_k
 from ..src.db_firebase import get_db
 
 # External Imports
+from fastapi.concurrency import run_in_threadpool
 from slowapi.util import get_remote_address
 from fastapi import HTTPException, Request, APIRouter
+from fastapi import BackgroundTasks
 from slowapi import Limiter
 
 import traceback
+import asyncio
 
 # Initialize router and rate limiter
 router = APIRouter()
@@ -25,7 +28,7 @@ async def root(request: Request):
 # Update inventory endpoint
 @router.post("/inventory")
 @limiter.limit("3/second")
-async def update_inventory(request: Request):
+async def update_inventory(request: Request, background_tasks: BackgroundTasks):
     store_type = request.query_params.get("store_type")
     if (not store_type): 
         raise HTTPException(
@@ -59,16 +62,20 @@ async def update_inventory(request: Request):
         raise HTTPException(status_code=500, detail=str(error))
 
     try:
-        await update_items(
-            store_type,
-            inventory_key,
-            inventory_id_key,
-            db,
-            user,
-            user_ref,
-            limits,
-            request,
-        )
+        def wrapped_update():
+            asyncio.run(update_items(
+                store_type,
+                inventory_key,
+                inventory_id_key,
+                db,
+                user,
+                user_ref,
+                limits,
+                request
+            ))
+
+        # Offload the async function to a background thread via a sync wrapper
+        background_tasks.add_task(asyncio.to_thread, wrapped_update)
 
         return {"success": True}
 
@@ -79,7 +86,7 @@ async def update_inventory(request: Request):
 # Update orders endpoint
 @router.post("/orders")
 @limiter.limit("3/second")
-async def update_orders(request: Request):
+async def update_orders(request: Request, background_tasks: BackgroundTasks):
     store_type = request.query_params.get("store_type")
     if not store_type:
         raise HTTPException(
@@ -88,6 +95,7 @@ async def update_orders(request: Request):
         )
 
     if (status_config["api"].get(store_type)) != "active":
+        print(status_config["api"].get(store_type))
         return config
 
     user = None
@@ -112,16 +120,20 @@ async def update_orders(request: Request):
         raise HTTPException(status_code=500, detail=str(error))
 
     try:
-        await update_items(
-            store_type,
-            sale_key,
-            sale_id_key,
-            db,
-            user,
-            user_ref,
-            limits,
-            request
-        )
+        def wrapped_update():
+            asyncio.run(update_items(
+                store_type,
+                sale_key,
+                sale_id_key,
+                db,
+                user,
+                user_ref,
+                limits,
+                request
+            ))
+
+        # Offload the CPU-bound task to a thread pool
+        background_tasks.add_task(asyncio.to_thread, wrapped_update)
 
         return {"success": True}
     except Exception as error:
