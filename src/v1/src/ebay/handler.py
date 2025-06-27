@@ -456,7 +456,8 @@ async def handle_new_order(
     try:
         # Order
         order_status: OrderStatus = order["OrderStatus"]
-        total_sale_price = float(order["AmountPaid"]["value"])
+        total_sale_price = float(order["Subtotal"]["value"])
+        order_total = float(order["Total"]["value"])
         modification_date = order["CheckoutStatus"]["LastModifiedTime"]
         is_cancelled = order_status == "Cancelled"
 
@@ -481,13 +482,8 @@ async def handle_new_order(
 
         # Tax
         tax = extract_taxes(transaction)
-        tax_amount = tax.get("amount") if tax is not None else 0
 
-        buyer_additional_fees = (
-            0.0
-            if is_cancelled
-            else round(total_sale_price - sale_price - shipping.get("fees", 0) - tax_amount, 2)
-        )
+        buyer_additional_fees = 0.0 if is_cancelled else order_total - total_sale_price
 
         image = listing_data.get("image")
         if not isinstance(image, list):
