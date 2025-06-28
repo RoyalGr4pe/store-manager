@@ -43,9 +43,12 @@ async def update_inventory(request: Request, background_tasks: BackgroundTasks):
     limits = None
     db = None
     try:
-        user_ref, user, limits = await fetch_and_check_user(
+        user_ref, user, limits, error = await fetch_and_check_user(
             request, store_type, inventory_key
         )
+        if error:
+            raise error
+
         db = get_db()
 
         # Check if any of (user, user_ref, limits and db) are None
@@ -98,9 +101,12 @@ async def update_orders(request: Request, background_tasks: BackgroundTasks):
     limits = None
     db = None
     try:
-        user_ref, user, limits = await fetch_and_check_user(
+        user_ref, user, limits, error = await fetch_and_check_user(
             request, store_type, sale_key
         )
+        if error:
+            raise error
+
         db = get_db()
 
         # Check if any of (user, user_ref, limits and db) are None
