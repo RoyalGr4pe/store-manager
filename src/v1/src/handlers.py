@@ -51,7 +51,7 @@ async def fetch_and_check_user(
         # Step 1: Check a uid was passed in with the url
         uid = request.query_params.get("uid")
         if uid is None:
-            return HTTPException(
+            raise HTTPException(
                 status_code=401, detail="Unauthorized: No valid uid provided"
             )
 
@@ -64,14 +64,14 @@ async def fetch_and_check_user(
         # Step 3: Check if the user has any account connected
         connected_accounts: dict | None = user_doc.get("connectedAccounts", {})
         if not connected_accounts:
-            return HTTPException(
+            raise HTTPException(
                 status_code=401, detail=f"Unauthorized: No account not connected"
             )
 
         # Step 4: Check if the user has connected their (store_type) account
         account: dict | None = connected_accounts.get(store_type)
         if not account:
-            return HTTPException(
+            raise HTTPException(
                 status_code=401,
                 detail=f"Unauthorized: {store_type} account not connected",
             )
@@ -105,11 +105,14 @@ async def fetch_and_check_user(
             raise HTTPException(status_code=500, detail=store_res.get("error"))
         user: IUser = store_res.get("user")
 
-        return user_ref, user, limits
+        return user_ref, user, limits, None
+    
+    except HTTPException as error:
+        return None, None, None, error
 
     except Exception as error:
         print(traceback.format_exc())
-        return HTTPException(status_code=500, detail=str(error))
+        return None, None, None, HTTPException(status_code=500, detail=str(error))
 
 
 def add_and_update_store(user: IUser, store_type: StoreType) -> IUser:
