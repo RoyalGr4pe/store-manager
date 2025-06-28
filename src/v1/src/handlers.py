@@ -94,7 +94,8 @@ async def fetch_and_check_user(
             max_automatic_limit: int = limits["automatic"]
             user_count = await fetch_user_inventory_and_orders_count(user, user_ref, db)
 
-            if user_count["automaticOrders"] >= max_automatic_limit:
+            key = "automaticOrders" if item_type == "orders" else "automaticListings"
+            if user_count[key] >= max_automatic_limit:
                 raise HTTPException(
                     status_code=400, detail="User has reached their automatic limit"
                 )
