@@ -64,17 +64,7 @@ async def update_inventory(request: Request, background_tasks: BackgroundTasks):
         raise HTTPException(status_code=500, detail=str(error))
 
     try:
-        asyncio.create_task(update_items(
-            store_type,
-            inventory_key,
-            inventory_id_key,
-            db,
-            user,
-            user_ref,
-            limits,
-            request
-        ))
-
+        background_tasks.add_task(update_items, store_type, inventory_key, inventory_id_key, db, user, user_ref, limits, request)
     except Exception as error:
         raise HTTPException(status_code=500, detail=str(error))
     
@@ -121,16 +111,7 @@ async def update_orders(request: Request, background_tasks: BackgroundTasks):
         raise HTTPException(status_code=500, detail=str(error))
 
     try:
-        asyncio.create_task(update_items(
-            store_type,
-            sale_key,
-            sale_id_key,
-            db,
-            user,
-            user_ref,
-            limits,
-            request
-        ))
+        background_tasks.add_task(update_items, store_type, sale_key, sale_id_key, db, user, user_ref, limits, request)
 
     except Exception as error:
         print(traceback.format_exc())
