@@ -3,8 +3,7 @@
     "builds": [
       {
         "src": "app.py",
-        "use": "@vercel/python",
-        "maxDuration": 180
+        "use": "@vercel/python"
       }
     ],
     "routes": [
